@@ -1,0 +1,80 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "../backend/Dockerfile"
+  },
+  "deploy": {
+    "startCommand": "uvicorn app.main:app --host 0.0.0.0 --port $PORT",
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 30,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 3
+  },
+  "services": {
+    "api": {
+      "name": "abvtrends-api",
+      "source": {
+        "repo": "github.com/your-org/abvtrends",
+        "branch": "main",
+        "rootDirectory": "backend"
+      },
+      "build": {
+        "builder": "DOCKERFILE",
+        "dockerfilePath": "Dockerfile"
+      },
+      "deploy": {
+        "startCommand": "uvicorn app.main:app --host 0.0.0.0 --port $PORT",
+        "healthcheckPath": "/health"
+      },
+      "variables": {
+        "ENVIRONMENT": "production",
+        "DEBUG": "false"
+      }
+    },
+    "celery-worker": {
+      "name": "abvtrends-worker",
+      "source": {
+        "repo": "github.com/your-org/abvtrends",
+        "branch": "main",
+        "rootDirectory": "backend"
+      },
+      "build": {
+        "builder": "DOCKERFILE",
+        "dockerfilePath": "Dockerfile"
+      },
+      "deploy": {
+        "startCommand": "celery -A app.workers.celery_app worker --loglevel=info --concurrency=2"
+      }
+    },
+    "celery-beat": {
+      "name": "abvtrends-scheduler",
+      "source": {
+        "repo": "github.com/your-org/abvtrends",
+        "branch": "main",
+        "rootDirectory": "backend"
+      },
+      "build": {
+        "builder": "DOCKERFILE",
+        "dockerfilePath": "Dockerfile"
+      },
+      "deploy": {
+        "startCommand": "celery -A app.workers.celery_app beat --loglevel=info"
+      }
+    }
+  },
+  "plugins": [
+    {
+      "name": "postgresql",
+      "config": {
+        "version": "15"
+      }
+    },
+    {
+      "name": "redis",
+      "config": {
+        "version": "7"
+      }
+    }
+  ]
+}

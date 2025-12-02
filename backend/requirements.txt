@@ -1,0 +1,50 @@
+# ABVTrends Backend Dependencies
+
+# FastAPI & Server
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Database
+sqlalchemy[asyncio]>=2.0.25
+asyncpg>=0.29.0
+alembic>=1.13.0
+greenlet>=3.0.0
+
+# Redis & Celery
+redis>=5.0.0
+celery>=5.3.0
+
+# Scraping
+httpx>=0.26.0
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
+playwright>=1.41.0
+
+# ML & Data Science
+numpy>=1.26.0
+pandas>=2.1.0
+prophet>=1.1.5
+scikit-learn>=1.4.0
+tensorflow>=2.15.0; platform_machine != 'arm64'
+tensorflow-macos>=2.15.0; platform_machine == 'arm64'
+
+# Text Processing
+rapidfuzz>=3.6.0
+
+# Utilities
+python-dateutil>=2.8.0
+pytz>=2024.1
+
+# Testing (dev)
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+pytest-cov>=4.1.0
+httpx>=0.26.0
+
+# Development
+black>=24.1.0
+ruff>=0.1.0
+mypy>=1.8.0

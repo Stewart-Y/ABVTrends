@@ -1,0 +1,258 @@
+"""
+ABVTrends - Trend Score Model
+
+Represents calculated trend scores for products at specific points in time.
+"""
+
+import uuid
+from datetime import datetime
+from typing import TYPE_CHECKING, Optional
+
+from sqlalchemy import DateTime, Float, ForeignKey, Index, String, func
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.models.product import Product
+
+
+class TrendScore(Base):
+    """
+    TrendScore model representing a calculated trend score at a point in time.
+
+    The composite score (0-100) is calculated from 6 weighted components:
+    - media_score (0.20): Media mentions and sentiment
+    - social_score (0.20): Social media velocity
+    - retailer_score (0.15): Retailer presence and availability
+    - price_score (0.15): Price movement signals
+    - search_score (0.15): Search interest trends
+    - seasonal_score (0.15): Seasonal alignment boost
+
+    Attributes:
+        id: Unique identifier (UUID)
+        product_id: Foreign key to the product
+        score: Composite trend score (0-100)
+        media_score: Normalized media component (0-100)
+        social_score: Normalized social component (0-100)
+        retailer_score: Normalized retailer component (0-100)
+        price_score: Normalized price component (0-100)
+        search_score: Normalized search component (0-100)
+        seasonal_score: Normalized seasonal component (0-100)
+        signal_count: Number of signals used in calculation
+        calculated_at: When this score was calculated
+        created_at: Database insertion timestamp
+    """
+
+    __tablename__ = "trend_scores"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("products.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # Composite score (weighted sum of components)
+    score: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        index=True,
+    )
+
+    # Component scores (each normalized to 0-100)
+    media_score: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        default=0.0,
+    )
+    social_score: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        default=0.0,
+    )
+    retailer_score: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        default=0.0,
+    )
+    price_score: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        default=0.0,
+    )
+    search_score: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        default=0.0,
+    )
+    seasonal_score: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        default=0.0,
+    )
+
+    # Metadata
+    signal_count: Mapped[int] = mapped_column(
+        nullable=False,
+        default=0,
+    )
+    calculation_version: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="v1.0",
+    )
+    calculated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    # Relationships
+    product: Mapped["Product"] = relationship(
+        "Product",
+        back_populates="trend_scores",
+    )
+
+    # Indexes for common queries
+    __table_args__ = (
+        Index("ix_trend_scores_product_calculated", "product_id", "calculated_at"),
+        Index("ix_trend_scores_score_calculated", "score", "calculated_at"),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<TrendScore(id={self.id}, product_id={self.product_id}, "
+            f"score={self.score:.1f})>"
+        )
+
+    @property
+    def trend_tier(self) -> str:
+        """
+        Get the trend tier based on score.
+
+        Returns:
+            Trend tier string: 'viral', 'trending', 'emerging', 'stable', or 'declining'
+        """
+        if self.score >= 90:
+            return "viral"
+        elif self.score >= 70:
+            return "trending"
+        elif self.score >= 50:
+            return "emerging"
+        elif self.score >= 30:
+            return "stable"
+        else:
+            return "declining"
+
+    @property
+    def component_breakdown(self) -> dict[str, float]:
+        """Get breakdown of component scores."""
+        return {
+            "media": self.media_score,
+            "social": self.social_score,
+            "retailer": self.retailer_score,
+            "price": self.price_score,
+            "search": self.search_score,
+            "seasonal": self.seasonal_score,
+        }
+
+
+class Forecast(Base):
+    """
+    Forecast model representing predicted trend scores.
+
+    Generated by ML models (Prophet + LSTM) for future dates.
+
+    Attributes:
+        id: Unique identifier (UUID)
+        product_id: Foreign key to the product
+        forecast_date: The date being predicted
+        predicted_score: Predicted trend score (0-100)
+        confidence_lower_80: Lower bound of 80% confidence interval
+        confidence_upper_80: Upper bound of 80% confidence interval
+        confidence_lower_95: Lower bound of 95% confidence interval
+        confidence_upper_95: Upper bound of 95% confidence interval
+        model_version: Version of the model used
+        created_at: When this forecast was generated
+    """
+
+    __tablename__ = "forecasts"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("products.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    forecast_date: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        index=True,
+    )
+    predicted_score: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+    )
+
+    # Confidence intervals
+    confidence_lower_80: Mapped[Optional[float]] = mapped_column(
+        Float,
+        nullable=True,
+    )
+    confidence_upper_80: Mapped[Optional[float]] = mapped_column(
+        Float,
+        nullable=True,
+    )
+    confidence_lower_95: Mapped[Optional[float]] = mapped_column(
+        Float,
+        nullable=True,
+    )
+    confidence_upper_95: Mapped[Optional[float]] = mapped_column(
+        Float,
+        nullable=True,
+    )
+
+    # Model metadata
+    model_version: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+    )
+    model_type: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="ensemble",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    # Indexes
+    __table_args__ = (
+        Index("ix_forecasts_product_date", "product_id", "forecast_date"),
+        Index("ix_forecasts_date_created", "forecast_date", "created_at"),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<Forecast(id={self.id}, product_id={self.product_id}, "
+            f"date={self.forecast_date.date()}, score={self.predicted_score:.1f})>"
+        )
