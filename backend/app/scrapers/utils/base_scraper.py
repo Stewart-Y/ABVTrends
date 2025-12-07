@@ -314,22 +314,31 @@ class BaseScraper(ABC):
     ) -> str:
         """Fetch URL using Playwright browser."""
         browser = await self._get_browser()
-        page: Page = await browser.new_page()
+        context = await browser.new_context(
+            viewport={"width": 1920, "height": 1080},
+            user_agent=self.get_headers()["User-Agent"],
+        )
+        page: Page = await context.new_page()
 
         try:
             # Set extra headers
             await page.set_extra_http_headers(self.get_headers())
 
-            await page.goto(url, wait_until="networkidle")
+            # Increase timeout to 60 seconds and use domcontentloaded instead of networkidle
+            await page.goto(url, wait_until="domcontentloaded", timeout=60000)
 
             if wait_for_selector:
-                await page.wait_for_selector(wait_for_selector, timeout=10000)
+                await page.wait_for_selector(wait_for_selector, timeout=15000)
+            else:
+                # Wait a bit for dynamic content
+                await page.wait_for_timeout(2000)
 
             content = await page.content()
             return content
 
         finally:
             await page.close()
+            await context.close()
 
     def parse_html(self, html: str) -> BeautifulSoup:
         """Parse HTML content into BeautifulSoup object."""

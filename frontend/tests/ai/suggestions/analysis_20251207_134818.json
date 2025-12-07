@@ -1,0 +1,73 @@
+{
+  "timestamp": "20251207_134818",
+  "failures_count": 1,
+  "failures": [
+    {
+      "file": "e2e/test-failure-demo.spec.ts",
+      "title": "should fail - demonstrating self-healing",
+      "test_title": "unknown",
+      "status": "failed",
+      "error": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('[data-testid=\"non-existent-element\"]')\nExpected: visible\nTimeout: 3000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 3000ms\u001b[22m\n\u001b[2m  - waiting for locator('[data-testid=\"non-existent-element\"]')\u001b[22m\n",
+      "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('[data-testid=\"non-existent-element\"]')\nExpected: visible\nTimeout: 3000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 3000ms\u001b[22m\n\u001b[2m  - waiting for locator('[data-testid=\"non-existent-element\"]')\u001b[22m\n\n    at /Users/stewartyousif/Desktop/ABVTrends/frontend/tests/playwright/e2e/test-failure-demo.spec.ts:7:72",
+      "duration": 3318,
+      "retry": 0,
+      "attachments": [
+        {
+          "name": "screenshot",
+          "contentType": "image/png",
+          "path": "/Users/stewartyousif/Desktop/ABVTrends/frontend/tests/playwright/test-results/e2e-test-failure-demo-Demo-099aa--demonstrating-self-healing-chromium/test-failed-1.png"
+        },
+        {
+          "name": "video",
+          "contentType": "video/webm",
+          "path": "/Users/stewartyousif/Desktop/ABVTrends/frontend/tests/playwright/test-results/e2e-test-failure-demo-Demo-099aa--demonstrating-self-healing-chromium/video.webm"
+        },
+        {
+          "name": "error-context",
+          "contentType": "text/markdown",
+          "path": "/Users/stewartyousif/Desktop/ABVTrends/frontend/tests/playwright/test-results/e2e-test-failure-demo-Demo-099aa--demonstrating-self-healing-chromium/error-context.md"
+        }
+      ]
+    }
+  ],
+  "analysis": [
+    {
+      "test_file": "e2e/test-failure-demo.spec.ts",
+      "test_name": "should fail - demonstrating self-healing",
+      "failure_type": "selector",
+      "root_cause": "Test is attempting to locate an element with data-testid='non-existent-element' which does not exist in the DOM. This appears to be a demo test designed to fail, but the selector is targeting a non-existent element.",
+      "suggested_fix": {
+        "file": "e2e/test-failure-demo.spec.ts",
+        "line_number": 7,
+        "original_code": "await expect(page.locator('[data-testid=\"non-existent-element\"]')).toBeVisible();",
+        "fixed_code": "// Demo test - checking for actual page elements\nconst pageBody = page.locator('body');\nconst mainContent = page.locator('main').or(page.locator('[data-testid=\"dashboard-page\"]')).or(page.locator('#__next'));\nawait expect(pageBody).toBeVisible();\nawait expect(mainContent.first()).toBeVisible();",
+        "explanation": "Since this is a demo test, I'm replacing the non-existent selector with actual elements that should exist on any ABVTrends page (body element and main content area). This provides a working example while maintaining the test's educational purpose."
+      },
+      "confidence": 0.98,
+      "requires_manual_review": true,
+      "additional_suggestions": [
+        {
+          "type": "alternative_fix",
+          "description": "If this test should verify a specific page element exists, replace with appropriate ABVTrends data-testid",
+          "code": "// Example for dashboard page\nawait expect(page.locator('[data-testid=\"dashboard-page\"]')).toBeVisible();\n// Or for trends page\nawait expect(page.locator('[data-testid=\"trends-page\"]')).toBeVisible();"
+        },
+        {
+          "type": "test_setup",
+          "description": "Ensure proper page navigation before element checks",
+          "code": "// Add proper navigation if missing\nawait page.goto('/dashboard'); // or appropriate route\nawait page.waitForLoadState('networkidle');"
+        },
+        {
+          "type": "resilient_selector",
+          "description": "Use multiple fallback selectors for better reliability",
+          "code": "// Resilient selector with fallbacks\nconst targetElement = page.locator('[data-testid=\"target-element\"]')\n  .or(page.locator('.target-class'))\n  .or(page.locator('#target-id'));\nawait expect(targetElement.first()).toBeVisible();"
+        }
+      ],
+      "recommendations": [
+        "This appears to be an intentionally failing demo test. Consider updating it to demonstrate actual self-healing scenarios with real ABVTrends elements.",
+        "Add proper page navigation and wait states before element assertions.",
+        "Use meaningful data-testid values that follow ABVTrends conventions.",
+        "Consider adding timeout configurations for flaky elements: { timeout: 10000 }"
+      ]
+    }
+  ]
+}

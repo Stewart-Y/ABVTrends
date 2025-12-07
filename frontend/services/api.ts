@@ -175,6 +175,52 @@ export async function getProductSignals(
   return fetchApi(`/products/${productId}/signals?page=${page}`);
 }
 
+export interface TrendSummary {
+  summary: string;
+  key_points: string[];
+  signal_count: number;
+  celebrity_affiliation: string | null;
+  launch_date: string | null;
+  region_focus: string | null;
+  trend_driver: string;
+  days_active: number;
+  sources_count: number;
+}
+
+export async function getProductTrendSummary(
+  productId: string
+): Promise<TrendSummary> {
+  return fetchApi(`/products/${productId}/trend-summary`);
+}
+
+// Discover API
+
+export interface DiscoverProduct {
+  id: string;
+  name: string;
+  brand: string | null;
+  category: string;
+  image_url: string | null;
+  score: number | null;
+  trend_tier: string | null;
+  created_at?: string;
+  celebrity_affiliation?: string | null;
+  signal_count?: number;
+  recent_signal_count?: number;
+}
+
+export async function getNewArrivals(limit: number = 12): Promise<{ items: DiscoverProduct[] }> {
+  return fetchApi(`/products/discover/new-arrivals?limit=${limit}`);
+}
+
+export async function getCelebrityBottles(limit: number = 12): Promise<{ items: DiscoverProduct[] }> {
+  return fetchApi(`/products/discover/celebrity-bottles?limit=${limit}`);
+}
+
+export async function getEarlyMovers(limit: number = 12): Promise<{ items: DiscoverProduct[] }> {
+  return fetchApi(`/products/discover/early-movers?limit=${limit}`);
+}
+
 // Forecasts API
 
 export async function getProductForecast(productId: string): Promise<{
@@ -204,4 +250,21 @@ export async function getCategories(): Promise<{
   subcategories: Record<string, string[]>;
 }> {
   return fetchApi('/products/categories/list');
+}
+
+// Signals
+
+export interface Signal {
+  id: string;
+  signal_type: string;
+  title: string;
+  url: string;
+  captured_at: string;
+  raw_data: any;
+  source_id: string;
+  product_id: string | null;
+}
+
+export async function getRecentSignals(limit: number = 10): Promise<ApiResponse<Signal[]>> {
+  return fetchApi(`/signals?limit=${limit}`);
 }

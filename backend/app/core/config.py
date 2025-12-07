@@ -69,9 +69,13 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
-    # External APIs (future use)
+    # External APIs
     google_trends_api_key: Optional[str] = None
     social_api_key: Optional[str] = None
+    openai_api_key: Optional[str] = None
+
+    # CORS
+    allowed_origins: str = "http://localhost:3000"
 
     @property
     def async_database_url(self) -> str:

@@ -39,13 +39,12 @@ class VinePairScraper(BaseScraper):
     SOURCE_NAME = "vinepair"
     BASE_URL = "https://vinepair.com"
 
-    # Category URLs to scrape
+    # Category URLs to scrape (updated URLs based on current site structure)
     CATEGORY_URLS = [
         "/",  # Homepage
-        "/category/wine/",
-        "/category/spirits/",
-        "/category/beer/",
-        "/category/cocktails/",
+        "/explore/category/wine/?post_type=post",
+        "/explore/category/spirit/?post_type=post",
+        "/explore/category/beer/?post_type=post",
     ]
 
     # Patterns for identifying product mentions

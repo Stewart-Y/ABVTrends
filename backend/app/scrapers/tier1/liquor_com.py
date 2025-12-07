@@ -40,13 +40,7 @@ class LiquorComScraper(BaseScraper):
     BASE_URL = "https://www.liquor.com"
 
     CATEGORY_URLS = [
-        "/",  # Homepage
-        "/news/",
-        "/spirits/",
-        "/wine/",
-        "/beer/",
-        "/recipes/",
-        "/lifestyle/",
+        "/",  # Homepage only - other URLs currently 404
     ]
 
     # Spirit brand patterns for extraction
@@ -134,10 +128,8 @@ class LiquorComScraper(BaseScraper):
 
     def _parse_article(self, article: Tag) -> Optional[ScrapedItem]:
         """Parse a single article card."""
-        # Find title and link
-        title_elem = article.select_one(
-            ".card__title a, .title a, h2 a, h3 a, .card__title-text"
-        )
+        # Find title and link - card__title contains the text, the card itself has the href
+        title_elem = article.select_one(".card__title")
 
         if not title_elem:
             link_elem = article.select_one("a[href]")

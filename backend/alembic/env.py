@@ -7,9 +7,8 @@ Configures Alembic for async SQLAlchemy migrations.
 import asyncio
 from logging.config import fileConfig
 
-from sqlalchemy import pool
+from sqlalchemy import engine_from_config, pool
 from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
@@ -26,8 +25,8 @@ from app.models.source import Source, ModelVersion
 # Alembic Config object
 config = context.config
 
-# Set the database URL from settings
-config.set_main_option("sqlalchemy.url", settings.database_url.replace("+asyncpg", ""))
+# Set the database URL from settings (sync version for Alembic)
+config.set_main_option("sqlalchemy.url", settings.sync_database_url)
 
 # Interpret the config file for Python logging
 if config.config_file_name is not None:
@@ -75,28 +74,31 @@ def do_run_migrations(connection: Connection) -> None:
         context.run_migrations()
 
 
-async def run_async_migrations() -> None:
+def run_migrations_online() -> None:
     """
-    Run migrations in 'online' mode with async engine.
+    Run migrations in 'online' mode with sync engine.
 
     In this scenario we need to create an Engine and associate a
     connection with the context.
     """
-    connectable = async_engine_from_config(
+    connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
 
-    async with connectable.connect() as connection:
-        await connection.run_sync(do_run_migrations)
+    with connectable.connect() as connection:
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=True,
+            compare_server_default=True,
+        )
 
-    await connectable.dispose()
+        with context.begin_transaction():
+            context.run_migrations()
 
-
-def run_migrations_online() -> None:
-    """Run migrations in 'online' mode."""
-    asyncio.run(run_async_migrations())
+    connectable.dispose()
 
 
 if context.is_offline_mode():

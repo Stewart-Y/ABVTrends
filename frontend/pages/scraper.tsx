@@ -1,0 +1,360 @@
+'use client';
+
+import { useEffect, useState, useRef } from 'react';
+import { Sidebar } from '@/components/Sidebar';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
+
+interface LogEntry {
+  timestamp: string;
+  level: string;
+  message: string;
+  logger: string;
+}
+
+interface ScraperStatus {
+  is_running: boolean;
+  current_source: string | null;
+  progress: number;
+  total: number;
+  logs_count: number;
+}
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+export default function ScraperPage() {
+  const [mounted, setMounted] = useState(false);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [status, setStatus] = useState<ScraperStatus>({
+    is_running: false,
+    current_source: null,
+    progress: 0,
+    total: 0,
+    logs_count: 0,
+  });
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [tier1Enabled, setTier1Enabled] = useState(true);
+  const [tier2Enabled, setTier2Enabled] = useState(false);
+  const [parallelMode, setParallelMode] = useState(false);
+
+  const logsEndRef = useRef<HTMLDivElement>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
+
+  useEffect(() => {
+    document.documentElement.classList.add('dark');
+    setMounted(true);
+  }, []);
+
+  // Auto-scroll to bottom when new logs arrive
+  useEffect(() => {
+    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [logs]);
+
+  // Fetch status periodically
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/scraper/status`);
+        const data = await response.json();
+        setStatus(data);
+      } catch (error) {
+        console.error('Failed to fetch status:', error);
+      }
+    };
+
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Connect to log stream
+  const connectToStream = () => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+    }
+
+    const eventSource = new EventSource(`${API_BASE}/scraper/logs/stream`);
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+
+        if (data.type === 'log') {
+          setLogs((prev) => [...prev, data.data]);
+        } else if (data.type === 'connected') {
+          console.log('Connected to log stream');
+        }
+      } catch (error) {
+        console.error('Failed to parse log:', error);
+      }
+    };
+
+    eventSource.onerror = (error) => {
+      console.error('EventSource error:', error);
+      eventSource.close();
+      setIsStreaming(false);
+    };
+
+    eventSourceRef.current = eventSource;
+    setIsStreaming(true);
+  };
+
+  // Disconnect from stream
+  const disconnectFromStream = () => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+    setIsStreaming(false);
+  };
+
+  // Auto-connect to stream on mount
+  useEffect(() => {
+    connectToStream();
+    return () => disconnectFromStream();
+  }, []);
+
+  // Start scraper
+  const handleStart = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/scraper/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tier1: tier1Enabled,
+          tier2: tier2Enabled,
+          parallel: parallelMode,
+          max_articles: 5,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        setLogs([]);  // Clear old logs
+      } else {
+        alert(data.message);
+      }
+    } catch (error) {
+      console.error('Failed to start scraper:', error);
+      alert('Failed to start scraper');
+    }
+  };
+
+  // Clear logs
+  const handleClear = () => {
+    setLogs([]);
+  };
+
+  if (!mounted) return null;
+
+  const getLogColor = (level: string) => {
+    switch (level.toUpperCase()) {
+      case 'ERROR':
+        return 'text-red-400';
+      case 'WARNING':
+        return 'text-yellow-400';
+      case 'INFO':
+        return 'text-blue-400';
+      case 'DEBUG':
+        return 'text-gray-400';
+      default:
+        return 'text-foreground';
+    }
+  };
+
+  const progressPercent = status.total > 0 ? (status.progress / status.total) * 100 : 0;
+
+  return (
+    <div className="flex min-h-screen bg-background" data-testid="scraper-page">
+      <Sidebar />
+
+      <main className="flex-1 ml-64">
+        {/* Header */}
+        <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-xl" data-testid="scraper-header">
+          <div className="flex items-center justify-between px-8 py-6">
+            <div>
+              <h1 className="text-2xl font-bold flex items-center gap-3" data-testid="scraper-title">
+                <span className="text-3xl">🤖</span>
+                AI Scraper Monitor
+              </h1>
+              <p className="text-muted-foreground mt-1">
+                Real-time monitoring of AI-powered data collection
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant={isStreaming ? 'default' : 'secondary'} className="gap-1.5" data-testid="connection-status">
+                <div
+                  className={cn(
+                    'w-2 h-2 rounded-full',
+                    isStreaming ? 'bg-green-400 animate-pulse' : 'bg-gray-400'
+                  )}
+                />
+                {isStreaming ? 'Connected' : 'Disconnected'}
+              </Badge>
+              <Badge variant={status.is_running ? 'default' : 'outline'} data-testid="running-status">
+                {status.is_running ? '🟢 Running' : '⚫ Idle'}
+              </Badge>
+            </div>
+          </div>
+        </header>
+
+        <div className="p-8 space-y-6">
+          {/* Controls Card */}
+          <Card data-testid="scraper-controls">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <span className="text-xl">⚙️</span>
+                Scraper Controls
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Configuration */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="flex items-center gap-3 p-4 rounded-lg border border-border hover:border-primary/30 transition-colors">
+                  <input
+                    type="checkbox"
+                    id="tier1"
+                    checked={tier1Enabled}
+                    onChange={(e) => setTier1Enabled(e.target.checked)}
+                    disabled={status.is_running}
+                    data-testid="tier1-checkbox"
+                    className="w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary"
+                  />
+                  <label htmlFor="tier1" className="flex-1 cursor-pointer">
+                    <div className="font-medium">Tier 1 Media</div>
+                    <div className="text-xs text-muted-foreground">20 sources</div>
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-3 p-4 rounded-lg border border-border hover:border-primary/30 transition-colors">
+                  <input
+                    type="checkbox"
+                    id="tier2"
+                    checked={tier2Enabled}
+                    onChange={(e) => setTier2Enabled(e.target.checked)}
+                    disabled={status.is_running}
+                    data-testid="tier2-checkbox"
+                    className="w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary"
+                  />
+                  <label htmlFor="tier2" className="flex-1 cursor-pointer">
+                    <div className="font-medium">Tier 2 Retail</div>
+                    <div className="text-xs text-muted-foreground">12 sources</div>
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-3 p-4 rounded-lg border border-border hover:border-primary/30 transition-colors">
+                  <input
+                    type="checkbox"
+                    id="parallel"
+                    checked={parallelMode}
+                    onChange={(e) => setParallelMode(e.target.checked)}
+                    disabled={status.is_running}
+                    data-testid="parallel-checkbox"
+                    className="w-5 h-5 rounded border-gray-300 text-primary focus:ring-primary"
+                  />
+                  <label htmlFor="parallel" className="flex-1 cursor-pointer">
+                    <div className="font-medium">Parallel Mode</div>
+                    <div className="text-xs text-muted-foreground">Faster scraping</div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-3">
+                <Button
+                  onClick={handleStart}
+                  disabled={status.is_running || (!tier1Enabled && !tier2Enabled)}
+                  className="gap-2"
+                  data-testid="start-scraper-button"
+                >
+                  <span>▶️</span>
+                  Start Scraping
+                </Button>
+                <Button onClick={handleClear} variant="outline" className="gap-2" data-testid="clear-logs-button">
+                  <span>🗑️</span>
+                  Clear Logs
+                </Button>
+                <Button
+                  onClick={isStreaming ? disconnectFromStream : connectToStream}
+                  variant="outline"
+                  className="gap-2"
+                  data-testid="stream-toggle-button"
+                >
+                  <span>{isStreaming ? '🔌' : '🔗'}</span>
+                  {isStreaming ? 'Disconnect' : 'Connect'}
+                </Button>
+              </div>
+
+              {/* Progress */}
+              {status.is_running && status.total > 0 && (
+                <div className="space-y-2" data-testid="scraper-progress">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">
+                      Progress: {status.progress} / {status.total} sources
+                    </span>
+                    <span className="font-medium" data-testid="progress-percent">{progressPercent.toFixed(0)}%</span>
+                  </div>
+                  <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-primary rounded-full transition-all duration-500"
+                      style={{ width: `${progressPercent}%` }}
+                    />
+                  </div>
+                  {status.current_source && (
+                    <div className="text-sm text-muted-foreground">
+                      Current: <span className="text-foreground font-medium" data-testid="current-source">{status.current_source}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Logs Card */}
+          <Card className="flex-1" data-testid="logs-card">
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">📋</span>
+                  Live Logs
+                  <Badge variant="outline" className="text-xs font-normal" data-testid="logs-count">
+                    {logs.length} entries
+                  </Badge>
+                </div>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="bg-black/40 rounded-lg p-4 h-[600px] overflow-y-auto font-mono text-sm" data-testid="logs-container">
+                {logs.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-muted-foreground" data-testid="logs-empty">
+                    <div className="text-center">
+                      <div className="text-4xl mb-3">💤</div>
+                      <div>No logs yet. Start scraping to see activity.</div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {logs.map((log, index) => (
+                      <div key={index} className="flex gap-3 hover:bg-white/5 px-2 py-1 rounded" data-testid={`log-entry-${index}`}>
+                        <span className="text-gray-500 text-xs shrink-0">
+                          {new Date(log.timestamp).toLocaleTimeString()}
+                        </span>
+                        <span className={cn('text-xs font-semibold shrink-0 w-16', getLogColor(log.level))}>
+                          {log.level}
+                        </span>
+                        <span className="text-gray-200 flex-1">{log.message}</span>
+                      </div>
+                    ))}
+                    <div ref={logsEndRef} />
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </main>
+    </div>
+  );
+}

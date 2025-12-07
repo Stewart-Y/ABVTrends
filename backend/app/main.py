@@ -46,10 +46,35 @@ async def lifespan(app: FastAPI):
         app.state.db_available = False
         set_db_available(False)
 
+    # Start scraper scheduler if enabled
+    if settings.environment == "production":
+        try:
+            from app.services.scraper_scheduler import start_scheduler
+            scheduler = await start_scheduler()
+            app.state.scheduler = scheduler
+            logger.info("✓ Scraper scheduler started (automatic hourly scraping)")
+        except Exception as e:
+            logger.warning(f"Failed to start scraper scheduler: {e}")
+            app.state.scheduler = None
+    else:
+        logger.info("Scraper scheduler disabled in development mode")
+        app.state.scheduler = None
+
     yield
 
     # Shutdown
     logger.info("Shutting down...")
+
+    # Stop scheduler
+    if hasattr(app.state, "scheduler") and app.state.scheduler:
+        try:
+            from app.services.scraper_scheduler import stop_scheduler
+            await stop_scheduler()
+            logger.info("Scraper scheduler stopped")
+        except Exception as e:
+            logger.warning(f"Error stopping scheduler: {e}")
+
+    # Close database
     try:
         await close_db()
         logger.info("Database connections closed")
