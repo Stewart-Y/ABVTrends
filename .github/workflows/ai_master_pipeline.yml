@@ -304,11 +304,244 @@ jobs:
             frontend/tests/ai/suggestions/
           retention-days: 14
 
+  # ==================== Phase 4: Documentation & Quality ====================
+  documentation:
+    name: Documentation Generation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install anthropic
+
+      - name: Run AI Documentation Writer
+        working-directory: frontend/tests/ai
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python docs/doc_writer.py
+        continue-on-error: true
+
+      - name: Run Codebase Map Generator
+        working-directory: frontend/tests/ai
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python docs/map_generator.py
+        continue-on-error: true
+
+      - name: Upload Documentation Reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: documentation-reports
+          path: |
+            frontend/tests/ai/results/documentation_*.md
+            frontend/tests/ai/results/code_map*.md
+            docs/
+          retention-days: 14
+
+  # ==================== Dependency & Data Quality ====================
+  quality-audits:
+    name: Quality Audits
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: abvtrends
+          POSTGRES_PASSWORD: abvtrends
+          POSTGRES_DB: abvtrends_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Python dependencies
+        run: pip install anthropic pip-audit psycopg2-binary
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+        continue-on-error: true
+
+      - name: Run Dependency Auditor
+        working-directory: frontend/tests/ai
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python security/dependency_auditor.py
+        continue-on-error: true
+
+      - name: Run Data Quality Agent
+        working-directory: frontend/tests/ai
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DATABASE_URL: postgresql://abvtrends:abvtrends@localhost:5432/abvtrends_test
+        run: python data_quality/data_quality_agent.py
+        continue-on-error: true
+
+      - name: Upload Quality Reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: quality-reports
+          path: |
+            frontend/tests/ai/results/dependency_*.json
+            frontend/tests/ai/results/dependency_report.md
+            frontend/tests/ai/results/data_quality*.json
+            frontend/tests/ai/results/data_quality_report.md
+          retention-days: 14
+
+  # ==================== Lint & Style ====================
+  lint-style:
+    name: Lint & Style Analysis
+    runs-on: ubuntu-latest
+    if: github.event.inputs.run_refactor == 'true' || github.event_name == 'schedule'
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install anthropic
+
+      - name: Run Lint Agent on Key Backend Files
+        working-directory: frontend/tests/ai
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          # Lint key service files
+          for file in ../../../backend/app/services/*.py; do
+            if [ -f "$file" ]; then
+              python lint/lint_refactor_agent.py "$file" || true
+            fi
+          done
+        continue-on-error: true
+
+      - name: Upload Lint Reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lint-reports
+          path: |
+            frontend/tests/ai/suggestions/linted_*.py
+            frontend/tests/ai/results/lint_summary_*.json
+          retention-days: 14
+
+  # ==================== Wiki Updates ====================
+  wiki-updates:
+    name: Wiki Auto-Update
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 20
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install anthropic
+
+      - name: Run Wiki Updater
+        working-directory: frontend/tests/ai
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python wiki/wiki_updater.py
+        continue-on-error: true
+
+      - name: Upload Wiki Updates
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wiki-updates
+          path: |
+            wiki/
+            frontend/tests/ai/results/wiki_updates*.json
+            frontend/tests/ai/results/wiki_updates.md
+          retention-days: 14
+
+  # ==================== Release Management ====================
+  release-notes:
+    name: Release Notes Generation
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install anthropic
+
+      - name: Run Release Manager
+        working-directory: frontend/tests/ai
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python release/release_manager.py
+        continue-on-error: true
+
+      - name: Upload Release Notes
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-notes
+          path: |
+            CHANGELOG.md
+            frontend/tests/ai/results/release_*.md
+            frontend/tests/ai/results/release_*.json
+          retention-days: 30
+
   # ==================== Summary Report ====================
   summary:
     name: Generate Summary Report
     runs-on: ubuntu-latest
-    needs: [backend-analysis, security-scan, e2e-tests]
+    needs: [backend-analysis, security-scan, e2e-tests, documentation, quality-audits]
     if: always()
     timeout-minutes: 10
 
@@ -332,13 +565,25 @@ jobs:
           echo "| Backend Analysis | ${{ needs.backend-analysis.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Security Scan | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| E2E Tests | ${{ needs.e2e-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Documentation | ${{ needs.documentation.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Quality Audits | ${{ needs.quality-audits.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Available Reports" >> $GITHUB_STEP_SUMMARY
+          echo "### Phase 1-3 Reports" >> $GITHUB_STEP_SUMMARY
           echo "- Model Audit Report" >> $GITHUB_STEP_SUMMARY
           echo "- Performance Analysis" >> $GITHUB_STEP_SUMMARY
           echo "- Security Report" >> $GITHUB_STEP_SUMMARY
           echo "- E2E Test Results" >> $GITHUB_STEP_SUMMARY
           echo "- AI Self-Healing Suggestions" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Phase 4 Reports" >> $GITHUB_STEP_SUMMARY
+          echo "- Documentation Generation (README, API, Architecture)" >> $GITHUB_STEP_SUMMARY
+          echo "- Codebase Map & Glossary" >> $GITHUB_STEP_SUMMARY
+          echo "- Dependency Audit Report" >> $GITHUB_STEP_SUMMARY
+          echo "- Data Quality Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "- Lint & Style Suggestions" >> $GITHUB_STEP_SUMMARY
+          echo "- Wiki Updates" >> $GITHUB_STEP_SUMMARY
+          echo "- Release Notes (on tags)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Download artifacts from the Actions tab for full reports." >> $GITHUB_STEP_SUMMARY
 
@@ -350,7 +595,9 @@ jobs:
             const results = {
               'backend-analysis': '${{ needs.backend-analysis.result }}',
               'security-scan': '${{ needs.security-scan.result }}',
-              'e2e-tests': '${{ needs.e2e-tests.result }}'
+              'e2e-tests': '${{ needs.e2e-tests.result }}',
+              'documentation': '${{ needs.documentation.result }}',
+              'quality-audits': '${{ needs.quality-audits.result }}'
             };
 
             const emoji = (status) => status === 'success' ? '✅' : status === 'failure' ? '❌' : '⏭️';
@@ -360,7 +607,11 @@ jobs:
             for (const [job, status] of Object.entries(results)) {
               body += `| ${job} | ${emoji(status)} ${status} |\n`;
             }
-            body += '\n📊 Full reports available in [Actions artifacts](' +
+            body += '\n### Phase 4 Reports Available:\n';
+            body += '- 📄 Documentation & Codebase Map\n';
+            body += '- 🔍 Dependency Audit & Data Quality\n';
+            body += '- 🎨 Lint & Style Suggestions\n\n';
+            body += '📊 Full reports available in [Actions artifacts](' +
               `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`;
 
             github.rest.issues.createComment({
