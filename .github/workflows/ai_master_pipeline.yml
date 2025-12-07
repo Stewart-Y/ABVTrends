@@ -19,6 +19,26 @@ on:
         required: false
         default: 'false'
         type: boolean
+      run_feature_build:
+        description: 'Run feature builder from feature_request.txt'
+        required: false
+        default: 'false'
+        type: boolean
+      run_prd:
+        description: 'Generate PRD from idea.txt'
+        required: false
+        default: 'false'
+        type: boolean
+      run_sprint_plan:
+        description: 'Generate sprint plan from backlog.txt'
+        required: false
+        default: 'false'
+        type: boolean
+      run_full_pipeline:
+        description: 'Run full PM → Eng → QA → Docs pipeline'
+        required: false
+        default: 'false'
+        type: boolean
 
 env:
   PYTHON_VERSION: '3.11'
@@ -498,6 +518,243 @@ jobs:
             frontend/tests/ai/results/wiki_updates.md
           retention-days: 14
 
+  # ==================== Phase 5: AI Feature Builder ====================
+  feature-builder:
+    name: AI Feature Builder
+    runs-on: ubuntu-latest
+    if: github.event.inputs.run_feature_build == 'true'
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install anthropic
+
+      - name: Run Feature Builder
+        working-directory: frontend/tests/ai
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python feature/feature_builder.py
+        continue-on-error: true
+
+      - name: Upload Feature Build Output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: feature-build
+          path: |
+            frontend/tests/ai/results/feature_build*.md
+            frontend/tests/ai/suggestions/feature_*/
+          retention-days: 14
+
+  # ==================== Phase 5: AI Product Manager ====================
+  product-manager:
+    name: AI Product Manager
+    runs-on: ubuntu-latest
+    if: github.event.inputs.run_prd == 'true'
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install anthropic
+
+      - name: Run PRD Generator
+        working-directory: frontend/tests/ai
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python pm/prd_generator.py
+        continue-on-error: true
+
+      - name: Upload PRD Output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: prd-output
+          path: |
+            frontend/tests/ai/results/prd_*.md
+            frontend/tests/ai/results/user_stories_*.json
+          retention-days: 14
+
+  # ==================== Phase 5: AI Sprint Planner ====================
+  sprint-planner:
+    name: AI Sprint Planner
+    runs-on: ubuntu-latest
+    if: github.event.inputs.run_sprint_plan == 'true'
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install anthropic
+
+      - name: Run Sprint Planner
+        working-directory: frontend/tests/ai
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python pm/sprint_planner.py
+        continue-on-error: true
+
+      - name: Upload Sprint Plan
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sprint-plan
+          path: |
+            frontend/tests/ai/results/sprint_plan*.md
+            frontend/tests/ai/results/sprint_stories_*.json
+          retention-days: 14
+
+  # ==================== Phase 5: AI Predictive Bug Finder ====================
+  predictive-bugs:
+    name: AI Predictive Bug Finder
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install anthropic
+
+      - name: Run Predictive Bug Finder
+        working-directory: frontend/tests/ai
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python predictive/predictive_bug_finder.py
+        continue-on-error: true
+
+      - name: Upload Bug Predictions
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: predictive-bugs
+          path: |
+            frontend/tests/ai/results/predictive_bug*.md
+            frontend/tests/ai/results/predictive_bugs_*.json
+          retention-days: 14
+
+  # ==================== Phase 5: AI UX Analyzer ====================
+  ux-analysis:
+    name: AI UX Analyzer
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event.inputs.run_full_pipeline == 'true'
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Python dependencies
+        run: pip install anthropic playwright
+
+      - name: Install Playwright browsers
+        run: playwright install chromium
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+        continue-on-error: true
+
+      - name: Build and start frontend
+        working-directory: frontend
+        run: |
+          npm run build || true
+          npm run start &
+          sleep 10
+        continue-on-error: true
+
+      - name: Run UX Agent
+        working-directory: frontend/tests/ai
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python ux/ux_agent.py
+        continue-on-error: true
+
+      - name: Upload UX Analysis
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ux-analysis
+          path: |
+            frontend/tests/ai/results/ux_*.md
+            frontend/tests/ai/results/ux_*.json
+            frontend/tests/ai/results/ux_screenshots/
+          retention-days: 14
+
+  # ==================== Phase 5: Full AI Pipeline ====================
+  full-pipeline:
+    name: Full AI Pipeline (PM → Eng → QA → Docs)
+    runs-on: ubuntu-latest
+    if: github.event.inputs.run_full_pipeline == 'true'
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install anthropic
+
+      - name: Run AI Orchestrator - Full Pipeline
+        working-directory: frontend/tests/ai
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python orchestrator.py full
+        continue-on-error: true
+
+      - name: Upload Pipeline Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: full-pipeline
+          path: |
+            frontend/tests/ai/results/
+            frontend/tests/ai/suggestions/
+          retention-days: 14
+
   # ==================== Release Management ====================
   release-notes:
     name: Release Notes Generation
@@ -584,6 +841,14 @@ jobs:
           echo "- Lint & Style Suggestions" >> $GITHUB_STEP_SUMMARY
           echo "- Wiki Updates" >> $GITHUB_STEP_SUMMARY
           echo "- Release Notes (on tags)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Phase 5 Reports (Manual Trigger)" >> $GITHUB_STEP_SUMMARY
+          echo "- Feature Builder (code generation)" >> $GITHUB_STEP_SUMMARY
+          echo "- Product Manager (PRD/stories)" >> $GITHUB_STEP_SUMMARY
+          echo "- Sprint Planner" >> $GITHUB_STEP_SUMMARY
+          echo "- Predictive Bug Finder" >> $GITHUB_STEP_SUMMARY
+          echo "- UX Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "- Full AI Pipeline Orchestrator" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Download artifacts from the Actions tab for full reports." >> $GITHUB_STEP_SUMMARY
 
