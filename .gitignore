@@ -56,3 +56,4 @@ celerybeat.pid
 *.bak
 *.tmp
 .cache/
+terraform.tfvars

@@ -55,6 +55,7 @@ export interface TrendScore {
   signal_count: number;
   calculated_at: string;
   trend_tier: string;
+  score_change_24h?: number;
 }
 
 export interface Forecast {
@@ -78,6 +79,7 @@ export interface PaginationMeta {
 
 export interface ApiResponse<T> {
   data: T;
+  items?: T;
   meta?: PaginationMeta;
   generated_at?: string;
 }
@@ -120,12 +122,18 @@ export async function getTrendingProducts(params?: {
   per_page?: number;
   category?: string;
   min_score?: number;
+  tier?: string;
+  limit?: number;
+  offset?: number;
 }): Promise<ApiResponse<TrendingProduct[]>> {
   const searchParams = new URLSearchParams();
   if (params?.page) searchParams.set('page', params.page.toString());
   if (params?.per_page) searchParams.set('per_page', params.per_page.toString());
   if (params?.category) searchParams.set('category', params.category);
   if (params?.min_score) searchParams.set('min_score', params.min_score.toString());
+  if (params?.tier) searchParams.set('tier', params.tier);
+  if (params?.limit) searchParams.set('limit', params.limit.toString());
+  if (params?.offset) searchParams.set('offset', params.offset.toString());
 
   const query = searchParams.toString();
   return fetchApi(`/trends${query ? `?${query}` : ''}`);
