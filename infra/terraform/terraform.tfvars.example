@@ -1,0 +1,9 @@
+# ABVTrends Terraform Variables - MINIMAL SETUP
+# Copy this file to terraform.tfvars and fill in the values
+
+aws_region  = "us-east-1"
+environment = "prod"
+
+# Database credentials (use a strong password!)
+db_username = "abvtrends"
+db_password = "CHANGE_THIS_TO_A_STRONG_PASSWORD_123!"

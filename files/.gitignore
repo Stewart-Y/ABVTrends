@@ -1,0 +1,6 @@
+# Generated files
+mnt/
+*.zip
+__init__.py
+base.py
+libdib.py

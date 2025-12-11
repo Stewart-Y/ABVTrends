@@ -21,6 +21,19 @@ from app.models.product import Product
 from app.models.signal import Signal
 from app.models.trend_score import TrendScore, Forecast
 from app.models.source import Source, ModelVersion
+from app.models.distributor import (
+    Distributor,
+    ProductAlias,
+    PriceHistory,
+    InventoryHistory,
+    ScrapeRun,
+    ScrapeError,
+    RawProductData,
+    MatchQueue,
+    Article,
+    ArticleMention,
+    CurrentTrendScore,
+)
 
 # Alembic Config object
 config = context.config

@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import DateTime, Enum, Index, String, Text, func
+from sqlalchemy import Boolean, DateTime, Enum, Index, Integer, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -18,6 +18,13 @@ from app.core.database import Base
 if TYPE_CHECKING:
     from app.models.signal import Signal
     from app.models.trend_score import TrendScore
+    from app.models.distributor import (
+        ProductAlias,
+        PriceHistory,
+        InventoryHistory,
+        ArticleMention,
+        CurrentTrendScore,
+    )
 
 
 class ProductCategory(str, enum.Enum):
@@ -121,6 +128,38 @@ class Product(Base):
         String(512),
         nullable=True,
     )
+    # New columns for distributor data
+    slug: Mapped[Optional[str]] = mapped_column(
+        String(500),
+        nullable=True,
+        index=True,
+    )
+    volume_ml: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    abv: Mapped[Optional[float]] = mapped_column(
+        Numeric(5, 2),
+        nullable=True,
+    )
+    country: Mapped[Optional[str]] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+    region: Mapped[Optional[str]] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+    upc: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        index=True,
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        server_default="true",
+        nullable=False,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -144,6 +183,33 @@ class Product(Base):
         back_populates="product",
         lazy="selectin",
         order_by="desc(TrendScore.calculated_at)",
+    )
+    # New relationships for distributor data
+    aliases: Mapped[list["ProductAlias"]] = relationship(
+        "ProductAlias",
+        back_populates="product",
+        lazy="selectin",
+    )
+    price_history: Mapped[list["PriceHistory"]] = relationship(
+        "PriceHistory",
+        back_populates="product",
+        lazy="dynamic",
+    )
+    inventory_history: Mapped[list["InventoryHistory"]] = relationship(
+        "InventoryHistory",
+        back_populates="product",
+        lazy="dynamic",
+    )
+    article_mentions: Mapped[list["ArticleMention"]] = relationship(
+        "ArticleMention",
+        back_populates="product",
+        lazy="dynamic",
+    )
+    current_score: Mapped[Optional["CurrentTrendScore"]] = relationship(
+        "CurrentTrendScore",
+        back_populates="product",
+        uselist=False,
+        lazy="selectin",
     )
 
     # Indexes for common queries
