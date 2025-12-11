@@ -220,7 +220,7 @@ class ScrapeRun(Base):
     products_new: Mapped[int] = mapped_column(Integer, default=0)
     products_updated: Mapped[int] = mapped_column(Integer, default=0)
     error_count: Mapped[int] = mapped_column(Integer, default=0)
-    metadata: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    run_metadata: Mapped[Optional[dict[str, Any]]] = mapped_column("metadata", JSONB, nullable=True)
 
     # Relationships
     errors: Mapped[list["ScrapeError"]] = relationship("ScrapeError", back_populates="scrape_run")
