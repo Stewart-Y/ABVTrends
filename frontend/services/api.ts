@@ -276,3 +276,199 @@ export interface Signal {
 export async function getRecentSignals(limit: number = 10): Promise<ApiResponse<Signal[]>> {
   return fetchApi(`/signals?limit=${limit}`);
 }
+
+// =============================================================================
+// Phase 7: Distributor Data API Functions
+// =============================================================================
+
+// Distributor Types
+
+export interface DistributorPrice {
+  price: number;
+  price_type: string;
+  currency: string;
+  recorded_at: string;
+}
+
+export interface DistributorPriceHistory {
+  distributor: string;
+  slug: string;
+  prices: DistributorPrice[];
+}
+
+export interface ProductPricesResponse {
+  product_id: string;
+  product_name: string;
+  days: number;
+  distributors: DistributorPriceHistory[];
+  stats: {
+    current: number;
+    min: number;
+    max: number;
+    avg: number;
+    change_pct: number;
+  } | null;
+  total_records: number;
+}
+
+export interface DistributorAvailability {
+  distributor: string;
+  slug: string;
+  website: string | null;
+  external_id: string;
+  external_url: string | null;
+  in_stock: boolean | null;
+  quantity: number | null;
+  available_states: string[] | null;
+  last_updated: string | null;
+  price: number | null;
+  price_type: string | null;
+}
+
+export interface ProductAvailabilityResponse {
+  product_id: string;
+  product_name: string;
+  distributor_count: number;
+  distributors: DistributorAvailability[];
+}
+
+export interface ProductHistoryResponse {
+  product_id: string;
+  product_name: string;
+  days: number;
+  current_score: {
+    score: number | null;
+    tier: string | null;
+    momentum: string | null;
+    retail_score: number | null;
+    price_score: number | null;
+    inventory_score: number | null;
+  } | null;
+  trends: Array<{ type: string; value: number; timestamp: string }>;
+  prices: Array<{ type: string; value: number; timestamp: string }>;
+  inventory: Array<{ type: string; value: number; in_stock: boolean; timestamp: string }>;
+}
+
+export interface DistributorArrival {
+  product_id: string;
+  product_name: string;
+  brand: string | null;
+  category: string | null;
+  image_url: string | null;
+  distributor: string;
+  added_at: string;
+  external_url: string | null;
+  score: number | null;
+  tier: string | null;
+}
+
+export interface ScraperHealth {
+  distributor: string;
+  slug: string;
+  status: 'healthy' | 'stale' | 'failed' | 'unknown';
+  last_run_at: string | null;
+  hours_since_run: number | null;
+  is_running: boolean;
+}
+
+export interface ScraperHealthResponse {
+  overall_healthy: boolean;
+  healthy_count: number;
+  total_count: number;
+  scrapers: ScraperHealth[];
+  alerts: Array<{
+    type: string;
+    distributor: string;
+    hours_since_run?: number;
+    error?: string;
+  }>;
+  checked_at: string;
+}
+
+export interface ScrapeRun {
+  id: string;
+  distributor: string;
+  distributor_slug: string;
+  status: string;
+  started_at: string | null;
+  completed_at: string | null;
+  products_found: number | null;
+  products_new: number | null;
+  products_updated: number | null;
+  error_count: number | null;
+}
+
+export interface Distributor {
+  id: string;
+  name: string;
+  slug: string;
+  website_url: string | null;
+  is_active: boolean;
+  scraper_class: string | null;
+  last_scrape_at: string | null;
+  last_scrape_status: string | null;
+  products_count: number | null;
+}
+
+// Distributor API Functions
+
+export async function getProductPrices(
+  productId: string,
+  days: number = 30
+): Promise<ProductPricesResponse> {
+  return fetchApi(`/products/${productId}/prices?days=${days}`);
+}
+
+export async function getProductAvailability(
+  productId: string
+): Promise<ProductAvailabilityResponse> {
+  return fetchApi(`/products/${productId}/availability`);
+}
+
+export async function getProductHistory(
+  productId: string,
+  days: number = 30
+): Promise<ProductHistoryResponse> {
+  return fetchApi(`/products/${productId}/history?days=${days}`);
+}
+
+export async function getDistributorArrivals(
+  days: number = 7,
+  limit: number = 20
+): Promise<{ days: number; items: DistributorArrival[] }> {
+  return fetchApi(`/products/discover/distributor-arrivals?days=${days}&limit=${limit}`);
+}
+
+export async function getScraperHealth(): Promise<ScraperHealthResponse> {
+  return fetchApi('/distributors/scraper/health');
+}
+
+export async function getRecentScrapeRuns(
+  limit: number = 20,
+  distributor?: string
+): Promise<{ runs: ScrapeRun[] }> {
+  const params = new URLSearchParams();
+  params.set('limit', limit.toString());
+  if (distributor) params.set('distributor', distributor);
+  return fetchApi(`/distributors/scraper/runs?${params.toString()}`);
+}
+
+export async function getDistributors(
+  activeOnly: boolean = true
+): Promise<{ distributors: Distributor[]; total: number }> {
+  return fetchApi(`/distributors?active_only=${activeOnly}`);
+}
+
+export async function triggerScrape(
+  slug: string,
+  categories?: string[]
+): Promise<{ success: boolean; message: string }> {
+  const params = new URLSearchParams();
+  if (categories) {
+    categories.forEach(cat => params.append('categories', cat));
+  }
+  const query = params.toString();
+  return fetchApi(`/distributors/${slug}/scrape${query ? `?${query}` : ''}`, {
+    method: 'POST',
+  });
+}

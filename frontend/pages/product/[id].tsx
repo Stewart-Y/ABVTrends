@@ -33,6 +33,7 @@ import {
   getProductTrendSummary,
   TrendSummary,
 } from '@/services/api';
+import { DistributorAvailabilityCard, PriceHistoryChart } from '@/components/distributor';
 import { cn, getTierColor } from '@/lib/utils';
 
 function ComponentBar({
@@ -154,7 +155,7 @@ export default function ProductDetail() {
 
   const { data: trend, isLoading: trendLoading } = useQuery({
     queryKey: ['productTrend', productId],
-    queryFn: () => getProductTrend(productId),
+    queryFn: () => getProductTrend(productId).catch(() => null),
     enabled: !!productId,
   });
 
@@ -192,7 +193,7 @@ export default function ProductDetail() {
     );
   }
 
-  if (!product || !trend) {
+  if (!product) {
     return (
       <div className="flex min-h-screen bg-background" data-testid="product-detail-page">
         <Sidebar />
@@ -212,7 +213,23 @@ export default function ProductDetail() {
     );
   }
 
-  const tierColor = getTierColor(trend.trend_tier);
+  // Create a placeholder trend for products without trend scores
+  const displayTrend = trend || {
+    score: 0,
+    trend_tier: 'emerging',
+    media_score: 0,
+    social_score: 0,
+    retailer_score: 0,
+    price_score: 0,
+    search_score: 0,
+    seasonal_score: 0,
+    signal_count: 0,
+    calculated_at: new Date().toISOString(),
+    score_change_24h: null,
+  };
+
+  const hasTrendData = !!trend;
+  const tierColor = getTierColor(displayTrend.trend_tier);
 
   // Prepare chart data
   const historyData =
@@ -231,12 +248,12 @@ export default function ProductDetail() {
 
   // Radar chart data for component breakdown
   const radarData = [
-    { subject: 'Media', value: trend.media_score, fullMark: 100 },
-    { subject: 'Social', value: trend.social_score, fullMark: 100 },
-    { subject: 'Retail', value: trend.retailer_score, fullMark: 100 },
-    { subject: 'Price', value: trend.price_score, fullMark: 100 },
-    { subject: 'Search', value: trend.search_score, fullMark: 100 },
-    { subject: 'Seasonal', value: trend.seasonal_score, fullMark: 100 },
+    { subject: 'Media', value: displayTrend.media_score, fullMark: 100 },
+    { subject: 'Social', value: displayTrend.social_score, fullMark: 100 },
+    { subject: 'Retail', value: displayTrend.retailer_score, fullMark: 100 },
+    { subject: 'Price', value: displayTrend.price_score, fullMark: 100 },
+    { subject: 'Search', value: displayTrend.search_score, fullMark: 100 },
+    { subject: 'Seasonal', value: displayTrend.seasonal_score, fullMark: 100 },
   ];
 
   return (
@@ -258,7 +275,9 @@ export default function ProductDetail() {
               <div>
                 <div className="flex items-center gap-3">
                   <h1 className="text-2xl font-bold" data-testid="product-name">{product.name}</h1>
-                  <Badge variant={trend.trend_tier as any} data-testid="product-tier-badge">{trend.trend_tier}</Badge>
+                  <Badge variant={displayTrend.trend_tier as any} data-testid="product-tier-badge">
+                    {hasTrendData ? displayTrend.trend_tier : 'new'}
+                  </Badge>
                 </div>
                 <div className="flex items-center gap-2 mt-1" data-testid="product-meta">
                   {product.brand && (
@@ -290,14 +309,22 @@ export default function ProductDetail() {
               <div className="absolute inset-0 bg-gradient-to-br from-primary/10 to-transparent" />
               <CardContent className="p-8 relative">
                 <div className="flex flex-col items-center" data-testid="score-gauge">
-                  <ScoreGauge score={trend.score} tier={trend.trend_tier} size="lg" animated />
+                  <ScoreGauge score={displayTrend.score} tier={displayTrend.trend_tier} size="lg" animated />
                   <div className="mt-6 text-center" data-testid="score-meta">
-                    <p className="text-sm text-muted-foreground">
-                      Based on <span className="text-foreground font-medium" data-testid="signal-count">{trend.signal_count}</span> signals
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1" data-testid="last-updated">
-                      Last updated: {new Date(trend.calculated_at).toLocaleString()}
-                    </p>
+                    {hasTrendData ? (
+                      <>
+                        <p className="text-sm text-muted-foreground">
+                          Based on <span className="text-foreground font-medium" data-testid="signal-count">{displayTrend.signal_count}</span> signals
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1" data-testid="last-updated">
+                          Last updated: {new Date(displayTrend.calculated_at).toLocaleString()}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        No trend data yet - collecting signals...
+                      </p>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -315,26 +342,26 @@ export default function ProductDetail() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4" data-testid="metrics-grid">
                   <MetricCard
                     label="Trend Score"
-                    value={trend.score.toFixed(0)}
-                    change={trend.score_change_24h}
+                    value={displayTrend.score.toFixed(0)}
+                    change={displayTrend.score_change_24h}
                     icon="📈"
                     delay={0}
                   />
                   <MetricCard
                     label="Signal Count"
-                    value={trend.signal_count}
+                    value={displayTrend.signal_count}
                     icon="📡"
                     delay={100}
                   />
                   <MetricCard
                     label="Media Score"
-                    value={trend.media_score.toFixed(0)}
+                    value={displayTrend.media_score.toFixed(0)}
                     icon="📰"
                     delay={200}
                   />
                   <MetricCard
                     label="Social Score"
-                    value={trend.social_score.toFixed(0)}
+                    value={displayTrend.social_score.toFixed(0)}
                     icon="💬"
                     delay={300}
                   />
@@ -499,42 +526,42 @@ export default function ProductDetail() {
               <CardContent className="space-y-3" data-testid="component-bars">
                 <ComponentBar
                   label="Media Mentions"
-                  value={trend.media_score}
+                  value={displayTrend.media_score}
                   color="#3b82f6"
                   icon="📰"
                   delay={0}
                 />
                 <ComponentBar
                   label="Social Velocity"
-                  value={trend.social_score}
+                  value={displayTrend.social_score}
                   color="#8b5cf6"
                   icon="💬"
                   delay={100}
                 />
                 <ComponentBar
                   label="Retailer Presence"
-                  value={trend.retailer_score}
+                  value={displayTrend.retailer_score}
                   color="#10b981"
                   icon="🏪"
                   delay={200}
                 />
                 <ComponentBar
                   label="Price Movement"
-                  value={trend.price_score}
+                  value={displayTrend.price_score}
                   color="#f59e0b"
                   icon="💰"
                   delay={300}
                 />
                 <ComponentBar
                   label="Search Interest"
-                  value={trend.search_score}
+                  value={displayTrend.search_score}
                   color="#ef4444"
                   icon="🔍"
                   delay={400}
                 />
                 <ComponentBar
                   label="Seasonal Alignment"
-                  value={trend.seasonal_score}
+                  value={displayTrend.seasonal_score}
                   color="#06b6d4"
                   icon="📅"
                   delay={500}
@@ -663,6 +690,15 @@ export default function ProductDetail() {
             </Card>
           </div>
 
+          {/* Distributor Data Section */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6" data-testid="distributor-section">
+            {/* Distributor Availability */}
+            <DistributorAvailabilityCard productId={productId} />
+
+            {/* Price History Chart */}
+            <PriceHistoryChart productId={productId} />
+          </div>
+
           {/* Additional Info */}
           <Card data-testid="product-info-card">
             <CardHeader>
@@ -689,8 +725,8 @@ export default function ProductDetail() {
                 </div>
                 <div data-testid="info-status">
                   <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Status</p>
-                  <Badge variant={trend.trend_tier as any} className="mt-1">
-                    {trend.trend_tier}
+                  <Badge variant={displayTrend.trend_tier as any} className="mt-1">
+                    {hasTrendData ? displayTrend.trend_tier : 'new'}
                   </Badge>
                 </div>
               </div>

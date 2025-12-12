@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { Sidebar } from '@/components/Sidebar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { getNewArrivals, getCelebrityBottles, getEarlyMovers, DiscoverProduct } from '@/services/api';
+import { getNewArrivals, getCelebrityBottles, getEarlyMovers, getDistributorArrivals, DiscoverProduct, DistributorArrival } from '@/services/api';
 import { cn, getTierColor } from '@/lib/utils';
 
 export default function DiscoverPage() {
@@ -30,6 +30,11 @@ export default function DiscoverPage() {
   const { data: earlyMovers, isLoading: loadingEarly } = useQuery({
     queryKey: ['earlyMovers'],
     queryFn: () => getEarlyMovers(12),
+  });
+
+  const { data: distributorArrivals, isLoading: loadingArrivals } = useQuery({
+    queryKey: ['distributorArrivals'],
+    queryFn: () => getDistributorArrivals(7, 12),
   });
 
   if (!mounted) return null;
@@ -136,8 +141,47 @@ export default function DiscoverPage() {
             )}
           </section>
 
+          {/* Distributor Arrivals Section */}
+          <section className="animate-fade-in" style={{ animationDelay: '200ms' }} data-testid="distributor-arrivals-section">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-2xl font-bold flex items-center gap-3" data-testid="distributor-arrivals-title">
+                  <span className="text-2xl">📦</span>
+                  New to Distributors
+                </h2>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Products recently added to distributor catalogs
+                </p>
+              </div>
+            </div>
+
+            {loadingArrivals ? (
+              <div className="flex items-center justify-center h-64" data-testid="distributor-arrivals-loading">
+                <div className="text-center">
+                  <div className="inline-block h-12 w-12 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent mb-4" />
+                  <p className="text-muted-foreground">Loading distributor arrivals...</p>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6" data-testid="distributor-arrivals-grid">
+                {distributorArrivals?.items?.map((arrival, idx) => (
+                  <DistributorArrivalCard key={`${arrival.product_id}-${arrival.distributor}`} arrival={arrival} index={idx} />
+                ))}
+              </div>
+            )}
+
+            {distributorArrivals?.items?.length === 0 && (
+              <EmptyState
+                emoji="📦"
+                title="No new distributor arrivals"
+                description="We're monitoring distributor catalogs. Check back soon!"
+                testId="distributor-arrivals-empty"
+              />
+            )}
+          </section>
+
           {/* Early Movers Section */}
-          <section className="animate-fade-in" style={{ animationDelay: '200ms' }} data-testid="early-movers-section">
+          <section className="animate-fade-in" style={{ animationDelay: '300ms' }} data-testid="early-movers-section">
             <div className="flex items-center justify-between mb-6">
               <div>
                 <h2 className="text-2xl font-bold flex items-center gap-3" data-testid="early-movers-title">
@@ -304,6 +348,122 @@ function ProductCard({
               {product.category === 'rtd' && '🥤'}
             </span>
             <span>{product.category}</span>
+          </div>
+        </CardContent>
+      </Card>
+    </Link>
+  );
+}
+
+// Distributor Arrival Card Component
+function DistributorArrivalCard({
+  arrival,
+  index,
+}: {
+  arrival: DistributorArrival;
+  index: number;
+}) {
+  const tierColor = arrival.tier ? getTierColor(arrival.tier) : '#888';
+
+  return (
+    <Link href={`/product/${arrival.product_id}`}>
+      <Card
+        data-testid={`distributor-arrival-${arrival.product_id}`}
+        className="group hover:border-primary/50 transition-all duration-300 hover:shadow-lg hover:shadow-primary/10 cursor-pointer overflow-hidden animate-fade-in"
+        style={{ animationDelay: `${index * 50}ms` }}
+      >
+        {/* Image */}
+        <div className="relative aspect-square bg-muted/30 overflow-hidden">
+          {arrival.image_url ? (
+            <img
+              src={arrival.image_url}
+              alt={arrival.product_name}
+              className="w-full h-full object-cover hover-rotate-3d"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center hover-rotate-3d">
+              <span className="text-6xl opacity-20">
+                {arrival.category === 'spirits' && '🥃'}
+                {arrival.category === 'wine' && '🍷'}
+                {arrival.category === 'beer' && '🍺'}
+                {arrival.category === 'rtd' && '🥤'}
+              </span>
+            </div>
+          )}
+
+          {/* Overlay badges */}
+          <div className="absolute top-3 right-3 flex flex-col gap-2">
+            <Badge className="bg-blue-500/90 text-white border-0 backdrop-blur-sm">
+              New Listing
+            </Badge>
+            {arrival.tier && (
+              <Badge variant={arrival.tier as any} className="backdrop-blur-sm">
+                {arrival.tier}
+              </Badge>
+            )}
+          </div>
+        </div>
+
+        <CardContent className="p-5">
+          {/* Product Info */}
+          <div className="mb-4">
+            <h3 className="font-semibold text-base group-hover:text-primary transition-colors line-clamp-2 mb-1">
+              {arrival.product_name}
+            </h3>
+            {arrival.brand && (
+              <p className="text-sm text-muted-foreground">{arrival.brand}</p>
+            )}
+          </div>
+
+          {/* Score Bar */}
+          {arrival.score !== null && arrival.score !== undefined && (
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-muted-foreground">Trend Score</span>
+                <span
+                  className="text-sm font-bold tabular-nums"
+                  style={{ color: tierColor }}
+                >
+                  {arrival.score.toFixed(0)}
+                </span>
+              </div>
+              <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{
+                    width: `${arrival.score}%`,
+                    backgroundColor: tierColor,
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Distributor Info */}
+          <div className="p-3 rounded-lg bg-gradient-to-br from-blue-500/10 to-cyan-500/10 border border-blue-500/20 mb-3">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-base">📦</span>
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Distributor
+              </span>
+            </div>
+            <p className="text-sm font-medium text-foreground">
+              {arrival.distributor}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Added {new Date(arrival.added_at).toLocaleDateString()}
+            </p>
+          </div>
+
+          {/* Category */}
+          <div className="flex items-center gap-2 text-xs text-muted-foreground capitalize">
+            <span>
+              {arrival.category === 'spirits' && '🥃'}
+              {arrival.category === 'wine' && '🍷'}
+              {arrival.category === 'beer' && '🍺'}
+              {arrival.category === 'rtd' && '🥤'}
+            </span>
+            <span>{arrival.category}</span>
           </div>
         </CardContent>
       </Card>

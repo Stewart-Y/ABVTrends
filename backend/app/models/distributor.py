@@ -207,15 +207,21 @@ class ScrapeRun(Base):
     __tablename__ = "scrape_runs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    scraper_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    source_type: Mapped[str] = mapped_column(String(50), nullable=False)  # distributor, media
-    status: Mapped[str] = mapped_column(String(20), nullable=False)  # running, success, failed, partial
+    distributor_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("distributors.id"),
+        nullable=True,
+    )
+    scraper_name: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+    source_type: Mapped[str] = mapped_column(String(50), nullable=False, default="distributor")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
         nullable=False,
     )
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    products_found: Mapped[int] = mapped_column(Integer, default=0)
     products_scraped: Mapped[int] = mapped_column(Integer, default=0)
     products_new: Mapped[int] = mapped_column(Integer, default=0)
     products_updated: Mapped[int] = mapped_column(Integer, default=0)
@@ -246,6 +252,11 @@ class ScrapeError(Base):
     scrape_run_id: Mapped[Optional[int]] = mapped_column(
         Integer,
         ForeignKey("scrape_runs.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    distributor_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("distributors.id"),
         nullable=True,
     )
     error_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)

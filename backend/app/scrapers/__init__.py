@@ -1,4 +1,4 @@
-"""ABVTrends Scrapers - Data collection from media and retail sources."""
+"""ABVTrends Scrapers - Data collection from media, retail, and distributor sources."""
 
 from app.scrapers.tier1 import (
     TIER1_SCRAPERS,
@@ -21,6 +21,14 @@ from app.scrapers.utils import (
     ScrapedItem,
     ScraperError,
 )
+from app.scrapers.distributors import (
+    DISTRIBUTOR_SCRAPERS,
+    BaseDistributorScraper,
+    LibDibScraper,
+    RawProduct,
+    ScrapeResult,
+    SessionManager,
+)
 
 __all__ = [
     # Base
@@ -41,7 +49,14 @@ __all__ = [
     "ReserveBarScraper",
     "BevMoScraper",
     "TIER2_SCRAPERS",
+    # Distributors
+    "BaseDistributorScraper",
+    "RawProduct",
+    "ScrapeResult",
+    "SessionManager",
+    "LibDibScraper",
+    "DISTRIBUTOR_SCRAPERS",
 ]
 
-# Combined registry of all scrapers
+# Combined registry of all media/retail scrapers
 ALL_SCRAPERS = {**TIER1_SCRAPERS, **TIER2_SCRAPERS}

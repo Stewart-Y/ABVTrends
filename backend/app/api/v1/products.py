@@ -28,6 +28,321 @@ from app.schemas.product import (
 router = APIRouter(prefix="/products", tags=["products"])
 
 
+# =============================================================================
+# Discover Routes (must come before parameterized routes)
+# =============================================================================
+
+
+def get_tier_from_score(score: float) -> str:
+    """Convert score to trend tier."""
+    if score >= 90:
+        return "viral"
+    elif score >= 70:
+        return "trending"
+    elif score >= 50:
+        return "emerging"
+    elif score >= 30:
+        return "stable"
+    else:
+        return "declining"
+
+
+@router.get("/discover/new-arrivals")
+async def get_new_arrivals(
+    limit: int = Query(12, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get recently added products ("New to ABVTrends").
+
+    Returns products ordered by creation date, showing the latest additions
+    to the platform.
+    """
+    query = (
+        select(Product)
+        .order_by(Product.created_at.desc())
+        .limit(limit)
+    )
+
+    result = await db.execute(query)
+    products = result.scalars().all()
+
+    # Get latest scores
+    product_ids = [p.id for p in products]
+    scores_map = {}
+    if product_ids:
+        scores_result = await db.execute(
+            select(TrendScore.product_id, TrendScore.score)
+            .where(TrendScore.product_id.in_(product_ids))
+            .distinct(TrendScore.product_id)
+            .order_by(TrendScore.product_id, TrendScore.calculated_at.desc())
+        )
+        scores_map = {row[0]: row[1] for row in scores_result.all()}
+
+    return {
+        "items": [
+            {
+                "id": str(p.id),
+                "name": p.name,
+                "brand": p.brand,
+                "category": p.category.value if p.category else None,
+                "image_url": p.image_url,
+                "created_at": p.created_at.isoformat(),
+                "score": scores_map.get(p.id),
+                "trend_tier": get_tier_from_score(scores_map[p.id]) if p.id in scores_map else None,
+            }
+            for p in products
+        ]
+    }
+
+
+@router.get("/discover/celebrity-bottles")
+async def get_celebrity_bottles(
+    limit: int = Query(12, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get products with celebrity affiliations.
+
+    Searches signals for celebrity partnerships and returns products
+    with the highest celebrity presence.
+    """
+    from datetime import datetime, timedelta
+
+    # Find products with celebrity signals
+    ninety_days_ago = datetime.utcnow() - timedelta(days=90)
+
+    # Query for products that have signals with celebrity_affiliation in raw_data
+    celebrity_query = (
+        select(Signal.product_id, func.count(Signal.id).label("signal_count"))
+        .where(Signal.captured_at >= ninety_days_ago)
+        .where(Signal.raw_data.op("?")("celebrity_affiliation"))  # JSON has key
+        .group_by(Signal.product_id)
+        .order_by(func.count(Signal.id).desc())
+        .limit(limit)
+    )
+
+    celeb_result = await db.execute(celebrity_query)
+    celeb_products = celeb_result.all()
+
+    if not celeb_products:
+        return {"items": []}
+
+    product_ids = [row[0] for row in celeb_products]
+
+    # Get full product details
+    products_result = await db.execute(
+        select(Product).where(Product.id.in_(product_ids))
+    )
+    products = {p.id: p for p in products_result.scalars().all()}
+
+    # Get latest scores
+    scores_result = await db.execute(
+        select(TrendScore.product_id, TrendScore.score)
+        .where(TrendScore.product_id.in_(product_ids))
+        .distinct(TrendScore.product_id)
+        .order_by(TrendScore.product_id, TrendScore.calculated_at.desc())
+    )
+    scores_map = {row[0]: row[1] for row in scores_result.all()}
+
+    # Get celebrity names for each product
+    celeb_names = {}
+    for product_id in product_ids:
+        signal_result = await db.execute(
+            select(Signal.raw_data)
+            .where(Signal.product_id == product_id)
+            .where(Signal.raw_data.op("?")("celebrity_affiliation"))
+            .limit(1)
+        )
+        signal_data = signal_result.scalar_one_or_none()
+        if signal_data and isinstance(signal_data, dict):
+            celeb_names[product_id] = signal_data.get("celebrity_affiliation")
+
+    return {
+        "items": [
+            {
+                "id": str(product_id),
+                "name": products[product_id].name,
+                "brand": products[product_id].brand,
+                "category": products[product_id].category.value if products[product_id].category else None,
+                "image_url": products[product_id].image_url,
+                "score": scores_map.get(product_id),
+                "trend_tier": get_tier_from_score(scores_map[product_id]) if product_id in scores_map else None,
+                "celebrity_affiliation": celeb_names.get(product_id),
+                "signal_count": dict(celeb_products)[product_id],
+            }
+            for product_id in product_ids
+            if product_id in products
+        ]
+    }
+
+
+@router.get("/discover/early-movers")
+async def get_early_movers(
+    limit: int = Query(12, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get products with emerging momentum ("Early Movers").
+
+    Returns products in the "emerging" tier (50-69 score) that have shown
+    high signal velocity in recent days.
+    """
+    from datetime import datetime, timedelta
+
+    # Get products with recent high signal activity
+    seven_days_ago = datetime.utcnow() - timedelta(days=7)
+
+    # Find products with most signals in last 7 days
+    signal_velocity_query = (
+        select(Signal.product_id, func.count(Signal.id).label("recent_signals"))
+        .where(Signal.captured_at >= seven_days_ago)
+        .group_by(Signal.product_id)
+        .order_by(func.count(Signal.id).desc())
+        .limit(limit * 2)  # Get more candidates to filter by tier
+    )
+
+    velocity_result = await db.execute(signal_velocity_query)
+    velocity_products = velocity_result.all()
+
+    if not velocity_products:
+        return {"items": []}
+
+    product_ids = [row[0] for row in velocity_products]
+
+    # Get products with their latest scores
+    products_result = await db.execute(
+        select(Product).where(Product.id.in_(product_ids))
+    )
+    products = {p.id: p for p in products_result.scalars().all()}
+
+    # Get latest scores and filter by emerging tier
+    scores_result = await db.execute(
+        select(TrendScore.product_id, TrendScore.score)
+        .where(TrendScore.product_id.in_(product_ids))
+        .distinct(TrendScore.product_id)
+        .order_by(TrendScore.product_id, TrendScore.calculated_at.desc())
+    )
+
+    # Build results, prioritizing emerging tier
+    items = []
+    for row in scores_result.all():
+        product_id = row[0]
+        score = row[1]
+        tier = get_tier_from_score(score) if score else None
+
+        if product_id not in products:
+            continue
+
+        product = products[product_id]
+        signal_count = dict(velocity_products).get(product_id, 0)
+
+        # Prioritize emerging tier, but include trending as fallback
+        items.append({
+            "id": str(product_id),
+            "name": product.name,
+            "brand": product.brand,
+            "category": product.category.value if product.category else None,
+            "image_url": product.image_url,
+            "score": score,
+            "trend_tier": tier,
+            "recent_signal_count": signal_count,
+            "is_emerging": tier == "emerging" if tier else False,
+        })
+
+    # Sort: emerging tier first, then by signal velocity
+    items.sort(key=lambda x: (not x["is_emerging"], -x["recent_signal_count"]))
+
+    return {"items": items[:limit]}
+
+
+@router.get("/discover/distributor-arrivals")
+async def get_distributor_arrivals(
+    days: int = Query(7, ge=1, le=30, description="Days to look back"),
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get products recently added to distributors.
+
+    Shows products that were newly added to distributor catalogs
+    in the specified time period.
+    """
+    from datetime import datetime, timedelta
+    from app.models.distributor import ProductAlias, Distributor, CurrentTrendScore
+
+    since = datetime.utcnow() - timedelta(days=days)
+
+    # Get recently added aliases
+    query = (
+        select(ProductAlias, Product, Distributor.name)
+        .join(Product, ProductAlias.product_id == Product.id)
+        .join(Distributor, ProductAlias.source == Distributor.slug)
+        .where(ProductAlias.created_at >= since)
+        .order_by(ProductAlias.created_at.desc())
+        .limit(limit)
+    )
+
+    result = await db.execute(query)
+    arrivals = result.all()
+
+    # Get current scores
+    product_ids = list(set(a[1].id for a in arrivals))
+    scores = {}
+    if product_ids:
+        scores_result = await db.execute(
+            select(CurrentTrendScore)
+            .where(CurrentTrendScore.product_id.in_(product_ids))
+        )
+        scores = {s.product_id: s for s in scores_result.scalars().all()}
+
+    return {
+        "days": days,
+        "items": [
+            {
+                "product_id": str(alias.product_id),
+                "product_name": product.name,
+                "brand": product.brand,
+                "category": product.category.value if product.category else None,
+                "image_url": product.image_url,
+                "distributor": dist_name,
+                "added_at": alias.created_at.isoformat(),
+                "external_url": alias.external_url,
+                "score": scores.get(product.id).score if product.id in scores else None,
+                "tier": scores.get(product.id).tier if product.id in scores else None,
+            }
+            for alias, product, dist_name in arrivals
+        ],
+    }
+
+
+@router.get("/categories/list")
+async def list_categories():
+    """
+    List all available product categories and subcategories.
+    """
+    return {
+        "categories": [c.value for c in ProductCategory],
+        "subcategories": {
+            "spirits": [
+                "whiskey", "bourbon", "scotch", "vodka", "gin",
+                "rum", "tequila", "mezcal", "brandy", "cognac", "liqueur"
+            ],
+            "wine": [
+                "red_wine", "white_wine", "rose", "sparkling",
+                "champagne", "natural_wine", "orange_wine"
+            ],
+            "rtd": ["hard_seltzer", "canned_cocktail", "hard_kombucha"],
+            "beer": ["craft_beer", "ipa", "lager", "stout"],
+        },
+    }
+
+
+# =============================================================================
+# Product CRUD Routes
+# =============================================================================
+
+
 @router.get("", response_model=ProductListResponse)
 async def list_products(
     page: int = Query(1, ge=1),
@@ -417,230 +732,254 @@ async def get_product_trend_summary(
     }
 
 
-@router.get("/discover/new-arrivals")
-async def get_new_arrivals(
-    limit: int = Query(12, ge=1, le=50),
+# =============================================================================
+# Phase 6: Distributor Data Endpoints
+# =============================================================================
+
+
+@router.get("/{product_id}/prices")
+async def get_product_prices(
+    product_id: UUID,
+    days: int = Query(30, ge=1, le=365, description="Number of days of history"),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Get recently added products ("New to ABVTrends").
+    Get historical price data for a product by distributor.
 
-    Returns products ordered by creation date, showing the latest additions
-    to the platform.
-    """
-    query = (
-        select(Product)
-        .order_by(Product.created_at.desc())
-        .limit(limit)
-    )
-
-    result = await db.execute(query)
-    products = result.scalars().all()
-
-    # Get latest scores
-    product_ids = [p.id for p in products]
-    scores_result = await db.execute(
-        select(TrendScore.product_id, TrendScore.score, TrendScore.trend_tier)
-        .where(TrendScore.product_id.in_(product_ids))
-        .distinct(TrendScore.product_id)
-        .order_by(TrendScore.product_id, TrendScore.calculated_at.desc())
-    )
-    scores_map = {row[0]: {"score": row[1], "tier": row[2]} for row in scores_result.all()}
-
-    return {
-        "items": [
-            {
-                "id": str(p.id),
-                "name": p.name,
-                "brand": p.brand,
-                "category": p.category.value,
-                "image_url": p.image_url,
-                "created_at": p.created_at.isoformat(),
-                "score": scores_map.get(p.id, {}).get("score"),
-                "trend_tier": scores_map.get(p.id, {}).get("tier").value if scores_map.get(p.id, {}).get("tier") else None,
-            }
-            for p in products
-        ]
-    }
-
-
-@router.get("/discover/celebrity-bottles")
-async def get_celebrity_bottles(
-    limit: int = Query(12, ge=1, le=50),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Get products with celebrity affiliations.
-
-    Searches signals for celebrity partnerships and returns products
-    with the highest celebrity presence.
+    Returns price history from all distributors carrying this product.
     """
     from datetime import datetime, timedelta
+    from app.models.distributor import PriceHistory, Distributor
 
-    # Find products with celebrity signals
-    ninety_days_ago = datetime.utcnow() - timedelta(days=90)
+    # Verify product exists
+    product_result = await db.execute(
+        select(Product).where(Product.id == product_id)
+    )
+    product = product_result.scalar_one_or_none()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
 
-    # Query for products that have signals with celebrity_affiliation in raw_data
-    celebrity_query = (
-        select(Signal.product_id, func.count(Signal.id).label("signal_count"))
-        .where(Signal.captured_at >= ninety_days_ago)
-        .where(Signal.raw_data.op("?")("celebrity_affiliation"))  # JSON has key
-        .group_by(Signal.product_id)
-        .order_by(func.count(Signal.id).desc())
-        .limit(limit)
+    # Get price history
+    since = datetime.utcnow() - timedelta(days=days)
+    prices_query = (
+        select(PriceHistory, Distributor.name, Distributor.slug)
+        .join(Distributor, PriceHistory.distributor_id == Distributor.id)
+        .where(PriceHistory.product_id == product_id)
+        .where(PriceHistory.recorded_at >= since)
+        .order_by(PriceHistory.recorded_at.desc())
     )
 
-    celeb_result = await db.execute(celebrity_query)
-    celeb_products = celeb_result.all()
+    result = await db.execute(prices_query)
+    price_records = result.all()
 
-    if not celeb_products:
-        return {"items": []}
-
-    product_ids = [row[0] for row in celeb_products]
-
-    # Get full product details
-    products_result = await db.execute(
-        select(Product).where(Product.id.in_(product_ids))
-    )
-    products = {p.id: p for p in products_result.scalars().all()}
-
-    # Get latest scores
-    scores_result = await db.execute(
-        select(TrendScore.product_id, TrendScore.score, TrendScore.trend_tier)
-        .where(TrendScore.product_id.in_(product_ids))
-        .distinct(TrendScore.product_id)
-        .order_by(TrendScore.product_id, TrendScore.calculated_at.desc())
-    )
-    scores_map = {row[0]: {"score": row[1], "tier": row[2]} for row in scores_result.all()}
-
-    # Get celebrity names for each product
-    celeb_names = {}
-    for product_id in product_ids:
-        signal_result = await db.execute(
-            select(Signal.raw_data)
-            .where(Signal.product_id == product_id)
-            .where(Signal.raw_data.op("?")("celebrity_affiliation"))
-            .limit(1)
-        )
-        signal_data = signal_result.scalar_one_or_none()
-        if signal_data and isinstance(signal_data, dict):
-            celeb_names[product_id] = signal_data.get("celebrity_affiliation")
-
-    return {
-        "items": [
-            {
-                "id": str(product_id),
-                "name": products[product_id].name,
-                "brand": products[product_id].brand,
-                "category": products[product_id].category.value,
-                "image_url": products[product_id].image_url,
-                "score": scores_map.get(product_id, {}).get("score"),
-                "trend_tier": scores_map.get(product_id, {}).get("tier").value if scores_map.get(product_id, {}).get("tier") else None,
-                "celebrity_affiliation": celeb_names.get(product_id),
-                "signal_count": dict(celeb_products)[product_id],
+    # Group by distributor
+    by_distributor = {}
+    for price, dist_name, dist_slug in price_records:
+        if dist_slug not in by_distributor:
+            by_distributor[dist_slug] = {
+                "distributor": dist_name,
+                "slug": dist_slug,
+                "prices": [],
             }
-            for product_id in product_ids
-            if product_id in products
-        ]
-    }
-
-
-@router.get("/discover/early-movers")
-async def get_early_movers(
-    limit: int = Query(12, ge=1, le=50),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Get products with emerging momentum ("Early Movers").
-
-    Returns products in the "emerging" tier (50-69 score) that have shown
-    high signal velocity in recent days.
-    """
-    from datetime import datetime, timedelta
-
-    # Get products with recent high signal activity
-    seven_days_ago = datetime.utcnow() - timedelta(days=7)
-
-    # Find products with most signals in last 7 days
-    signal_velocity_query = (
-        select(Signal.product_id, func.count(Signal.id).label("recent_signals"))
-        .where(Signal.captured_at >= seven_days_ago)
-        .group_by(Signal.product_id)
-        .order_by(func.count(Signal.id).desc())
-        .limit(limit * 2)  # Get more candidates to filter by tier
-    )
-
-    velocity_result = await db.execute(signal_velocity_query)
-    velocity_products = velocity_result.all()
-
-    if not velocity_products:
-        return {"items": []}
-
-    product_ids = [row[0] for row in velocity_products]
-
-    # Get products with their latest scores
-    products_result = await db.execute(
-        select(Product).where(Product.id.in_(product_ids))
-    )
-    products = {p.id: p for p in products_result.scalars().all()}
-
-    # Get latest scores and filter by emerging tier
-    scores_result = await db.execute(
-        select(TrendScore.product_id, TrendScore.score, TrendScore.trend_tier)
-        .where(TrendScore.product_id.in_(product_ids))
-        .distinct(TrendScore.product_id)
-        .order_by(TrendScore.product_id, TrendScore.calculated_at.desc())
-    )
-
-    # Build results, prioritizing emerging tier
-    items = []
-    for row in scores_result.all():
-        product_id = row[0]
-        score = row[1]
-        tier = row[2]
-
-        if product_id not in products:
-            continue
-
-        product = products[product_id]
-        signal_count = dict(velocity_products).get(product_id, 0)
-
-        # Prioritize emerging tier, but include trending as fallback
-        items.append({
-            "id": str(product_id),
-            "name": product.name,
-            "brand": product.brand,
-            "category": product.category.value,
-            "image_url": product.image_url,
-            "score": score,
-            "trend_tier": tier.value if tier else None,
-            "recent_signal_count": signal_count,
-            "is_emerging": tier.value == "emerging" if tier else False,
+        by_distributor[dist_slug]["prices"].append({
+            "price": float(price.price),
+            "price_type": price.price_type,
+            "currency": price.currency,
+            "recorded_at": price.recorded_at.isoformat(),
         })
 
-    # Sort: emerging tier first, then by signal velocity
-    items.sort(key=lambda x: (not x["is_emerging"], -x["recent_signal_count"]))
+    # Calculate stats
+    all_prices = [float(p.price) for p, _, _ in price_records]
+    stats = None
+    if all_prices:
+        stats = {
+            "current": all_prices[0],
+            "min": min(all_prices),
+            "max": max(all_prices),
+            "avg": sum(all_prices) / len(all_prices),
+            "change_pct": ((all_prices[0] - all_prices[-1]) / all_prices[-1] * 100)
+            if len(all_prices) > 1 and all_prices[-1] > 0
+            else 0,
+        }
 
-    return {"items": items[:limit]}
-
-
-@router.get("/categories/list")
-async def list_categories():
-    """
-    List all available product categories and subcategories.
-    """
     return {
-        "categories": [c.value for c in ProductCategory],
-        "subcategories": {
-            "spirits": [
-                "whiskey", "bourbon", "scotch", "vodka", "gin",
-                "rum", "tequila", "mezcal", "brandy", "cognac", "liqueur"
-            ],
-            "wine": [
-                "red_wine", "white_wine", "rose", "sparkling",
-                "champagne", "natural_wine", "orange_wine"
-            ],
-            "rtd": ["hard_seltzer", "canned_cocktail", "hard_kombucha"],
-            "beer": ["craft_beer", "ipa", "lager", "stout"],
-        },
+        "product_id": str(product_id),
+        "product_name": product.name,
+        "days": days,
+        "distributors": list(by_distributor.values()),
+        "stats": stats,
+        "total_records": len(price_records),
+    }
+
+
+@router.get("/{product_id}/availability")
+async def get_product_availability(
+    product_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get current distributor availability for a product.
+
+    Shows which distributors carry this product and their stock status.
+    """
+    from app.models.distributor import (
+        ProductAlias,
+        InventoryHistory,
+        PriceHistory,
+        Distributor,
+    )
+
+    # Verify product exists
+    product_result = await db.execute(
+        select(Product).where(Product.id == product_id)
+    )
+    product = product_result.scalar_one_or_none()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    # Get all distributors carrying this product via aliases
+    alias_query = (
+        select(ProductAlias, Distributor.name, Distributor.slug, Distributor.website)
+        .join(Distributor, ProductAlias.source == Distributor.slug)
+        .where(ProductAlias.product_id == product_id)
+    )
+    alias_result = await db.execute(alias_query)
+    aliases = alias_result.all()
+
+    availability = []
+    for alias, dist_name, dist_slug, dist_website in aliases:
+        # Get latest inventory
+        inv_query = (
+            select(InventoryHistory)
+            .where(InventoryHistory.product_id == product_id)
+            .where(InventoryHistory.distributor_id == (
+                select(Distributor.id).where(Distributor.slug == dist_slug).scalar_subquery()
+            ))
+            .order_by(InventoryHistory.recorded_at.desc())
+            .limit(1)
+        )
+        inv_result = await db.execute(inv_query)
+        inventory = inv_result.scalar_one_or_none()
+
+        # Get latest price
+        price_query = (
+            select(PriceHistory)
+            .where(PriceHistory.product_id == product_id)
+            .where(PriceHistory.distributor_id == (
+                select(Distributor.id).where(Distributor.slug == dist_slug).scalar_subquery()
+            ))
+            .order_by(PriceHistory.recorded_at.desc())
+            .limit(1)
+        )
+        price_result = await db.execute(price_query)
+        price = price_result.scalar_one_or_none()
+
+        availability.append({
+            "distributor": dist_name,
+            "slug": dist_slug,
+            "website": dist_website,
+            "external_id": alias.external_id,
+            "external_url": alias.external_url,
+            "in_stock": inventory.in_stock if inventory else None,
+            "quantity": inventory.quantity if inventory else None,
+            "available_states": inventory.available_states if inventory else None,
+            "last_updated": inventory.recorded_at.isoformat() if inventory else None,
+            "price": float(price.price) if price else None,
+            "price_type": price.price_type if price else None,
+        })
+
+    return {
+        "product_id": str(product_id),
+        "product_name": product.name,
+        "distributor_count": len(availability),
+        "distributors": availability,
+    }
+
+
+@router.get("/{product_id}/history")
+async def get_product_history(
+    product_id: UUID,
+    days: int = Query(30, ge=1, le=365),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get combined trend, price, and inventory history for a product.
+
+    Returns a unified timeline of all product data changes.
+    """
+    from datetime import datetime, timedelta
+    from app.models.distributor import PriceHistory, InventoryHistory, CurrentTrendScore
+
+    # Verify product exists
+    product_result = await db.execute(
+        select(Product).where(Product.id == product_id)
+    )
+    product = product_result.scalar_one_or_none()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    since = datetime.utcnow() - timedelta(days=days)
+
+    # Get trend scores
+    trends_result = await db.execute(
+        select(TrendScore.score, TrendScore.calculated_at)
+        .where(TrendScore.product_id == product_id)
+        .where(TrendScore.calculated_at >= since)
+        .order_by(TrendScore.calculated_at.asc())
+    )
+    trends = [
+        {"type": "trend", "value": row[0], "timestamp": row[1].isoformat()}
+        for row in trends_result.all()
+    ]
+
+    # Get current score
+    current_result = await db.execute(
+        select(CurrentTrendScore).where(CurrentTrendScore.product_id == product_id)
+    )
+    current = current_result.scalar_one_or_none()
+
+    # Get price changes
+    prices_result = await db.execute(
+        select(PriceHistory.price, PriceHistory.recorded_at)
+        .where(PriceHistory.product_id == product_id)
+        .where(PriceHistory.recorded_at >= since)
+        .order_by(PriceHistory.recorded_at.asc())
+    )
+    prices = [
+        {"type": "price", "value": float(row[0]), "timestamp": row[1].isoformat()}
+        for row in prices_result.all()
+    ]
+
+    # Get inventory changes
+    inventory_result = await db.execute(
+        select(InventoryHistory.quantity, InventoryHistory.in_stock, InventoryHistory.recorded_at)
+        .where(InventoryHistory.product_id == product_id)
+        .where(InventoryHistory.recorded_at >= since)
+        .order_by(InventoryHistory.recorded_at.asc())
+    )
+    inventory = [
+        {
+            "type": "inventory",
+            "value": row[0] if row[0] is not None else (1 if row[1] else 0),
+            "in_stock": row[1],
+            "timestamp": row[2].isoformat(),
+        }
+        for row in inventory_result.all()
+    ]
+
+    return {
+        "product_id": str(product_id),
+        "product_name": product.name,
+        "days": days,
+        "current_score": {
+            "score": current.score if current else None,
+            "tier": current.tier if current else None,
+            "momentum": current.momentum if current else None,
+            "retail_score": current.retail_score if current else None,
+            "price_score": current.price_score if current else None,
+            "inventory_score": current.inventory_score if current else None,
+        } if current else None,
+        "trends": trends,
+        "prices": prices,
+        "inventory": inventory,
     }

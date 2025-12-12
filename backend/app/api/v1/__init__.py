@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter
 
+from app.api.v1.distributors import router as distributors_router
 from app.api.v1.forecasts import router as forecasts_router
 from app.api.v1.products import router as products_router
 from app.api.v1.scheduler import router as scheduler_router
@@ -19,5 +20,6 @@ api_router.include_router(forecasts_router)
 api_router.include_router(signals_router)
 api_router.include_router(scheduler_router)
 api_router.include_router(scraper_logs_router)
+api_router.include_router(distributors_router)
 
 __all__ = ["api_router"]

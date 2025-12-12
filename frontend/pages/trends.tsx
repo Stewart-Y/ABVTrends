@@ -39,8 +39,8 @@ export default function TrendsExplorer() {
 
   const filteredProducts = data?.items?.filter((item) =>
     search
-      ? item.product.name.toLowerCase().includes(search.toLowerCase()) ||
-        item.product.brand?.toLowerCase().includes(search.toLowerCase())
+      ? item.name.toLowerCase().includes(search.toLowerCase()) ||
+        item.brand?.toLowerCase().includes(search.toLowerCase())
       : true
   );
 
@@ -144,7 +144,7 @@ export default function TrendsExplorer() {
                   <div className="p-3 rounded-lg bg-primary/10 border border-primary/20" data-testid="results-count">
                     <p className="text-sm text-muted-foreground">
                       <span className="text-2xl font-bold text-primary mr-2">
-                        {data?.total || 0}
+                        {data?.meta?.total || data?.items?.length || 0}
                       </span>
                       products found
                     </p>
@@ -194,33 +194,33 @@ export default function TrendsExplorer() {
                         const tierColor = getTierColor(item.trend_tier);
                         return (
                           <tr
-                            key={item.product.id}
-                            data-testid={`trend-row-${item.product.id}`}
+                            key={item.id}
+                            data-testid={`trend-row-${item.id}`}
                             className="group hover:bg-muted/30 cursor-pointer transition-colors animate-fade-in"
                             style={{ animationDelay: `${index * 30}ms` }}
                             onClick={() =>
-                              (window.location.href = `/product/${item.product.id}`)
+                              (window.location.href = `/product/${item.id}`)
                             }
                           >
                             <td className="px-6 py-4">
                               <div>
                                 <div className="font-medium text-foreground group-hover:text-primary transition-colors">
-                                  {item.product.name}
+                                  {item.name}
                                 </div>
-                                {item.product.brand && (
+                                {item.brand && (
                                   <div className="text-sm text-muted-foreground">
-                                    {item.product.brand}
+                                    {item.brand}
                                   </div>
                                 )}
                               </div>
                             </td>
                             <td className="px-6 py-4">
                               <span className="text-sm text-muted-foreground capitalize">
-                                {item.product.category === 'spirits' && '🥃 '}
-                                {item.product.category === 'wine' && '🍷 '}
-                                {item.product.category === 'beer' && '🍺 '}
-                                {item.product.category === 'rtd' && '🥤 '}
-                                {item.product.category}
+                                {item.category === 'spirits' && '🥃 '}
+                                {item.category === 'wine' && '🍷 '}
+                                {item.category === 'beer' && '🍺 '}
+                                {item.category === 'rtd' && '🥤 '}
+                                {item.category}
                               </span>
                             </td>
                             <td className="px-6 py-4">
@@ -229,7 +229,7 @@ export default function TrendsExplorer() {
                                   <div
                                     className="h-full rounded-full transition-all duration-500"
                                     style={{
-                                      width: `${item.score}%`,
+                                      width: `${item.trend_score}%`,
                                       backgroundColor: tierColor,
                                     }}
                                   />
@@ -238,7 +238,7 @@ export default function TrendsExplorer() {
                                   className="text-sm font-bold tabular-nums"
                                   style={{ color: tierColor }}
                                 >
-                                  {item.score.toFixed(0)}
+                                  {item.trend_score.toFixed(0)}
                                 </span>
                               </div>
                             </td>
@@ -249,12 +249,12 @@ export default function TrendsExplorer() {
                             </td>
                             <td className="px-6 py-4">
                               <span className="text-sm text-muted-foreground tabular-nums">
-                                {item.signal_count}
+                                {item.component_breakdown?.media ?? '-'}
                               </span>
                             </td>
                             <td className="px-6 py-4">
                               <span className="text-sm text-muted-foreground">
-                                {new Date(item.calculated_at).toLocaleDateString()}
+                                -
                               </span>
                             </td>
                           </tr>
@@ -278,7 +278,7 @@ export default function TrendsExplorer() {
                 )}
 
                 {/* Pagination */}
-                {data?.total && data.total > pageSize && (
+                {(data?.meta?.total || 0) > pageSize && (
                   <div className="border-t border-border px-6 py-4" data-testid="trends-pagination">
                     <div className="flex items-center justify-between">
                       <div className="text-sm text-muted-foreground">
@@ -288,10 +288,10 @@ export default function TrendsExplorer() {
                         </span>{' '}
                         to{' '}
                         <span className="font-medium text-foreground">
-                          {Math.min(page * pageSize, data.total)}
+                          {Math.min(page * pageSize, data?.meta?.total || 0)}
                         </span>{' '}
                         of{' '}
-                        <span className="font-medium text-foreground">{data.total}</span>{' '}
+                        <span className="font-medium text-foreground">{data?.meta?.total || 0}</span>{' '}
                         results
                       </div>
                       <div className="flex gap-2">
@@ -308,7 +308,7 @@ export default function TrendsExplorer() {
                           variant="outline"
                           size="sm"
                           onClick={() => setPage((p) => p + 1)}
-                          disabled={page * pageSize >= data.total}
+                          disabled={page * pageSize >= (data?.meta?.total || 0)}
                           data-testid="pagination-next"
                         >
                           Next →

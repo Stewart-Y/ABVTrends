@@ -2,16 +2,21 @@
 ABVTrends - Celery Tasks
 
 Background tasks for scraping, scoring, and ML operations.
+Includes distributor scraping tasks (Phase 5).
 """
 
 import asyncio
 import logging
 from datetime import datetime, timedelta
+from typing import Optional
 
 from app.core.database import get_db_context
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+# Track scraper health
+_scraper_status: dict[str, dict] = {}
 
 
 def run_async(coro):
@@ -359,3 +364,244 @@ def train_single_product(product_id: str):
         return result
 
     return run_async(_run())
+
+
+# =============================================================================
+# Distributor Scraping Tasks (Phase 5)
+# =============================================================================
+
+
+@celery_app.task(bind=True, max_retries=3)
+def scrape_all_distributors(self):
+    """
+    Run all active distributor scrapers.
+
+    Scrapes products from LibDib and other distributors,
+    processes through data pipeline.
+    """
+    logger.info("Starting distributor scrapers...")
+
+    async def _run():
+        from dotenv import load_dotenv
+        load_dotenv()
+
+        from sqlalchemy import select
+        from app.models.distributor import Distributor
+        from app.scrapers.distributors import DISTRIBUTOR_SCRAPERS, SessionManager
+        from app.services.data_pipeline import DataPipeline
+
+        results = {}
+        session_manager = SessionManager(use_aws=False)
+
+        async with get_db_context() as db:
+            # Get all active distributors
+            result = await db.execute(
+                select(Distributor).where(Distributor.is_active == True)
+            )
+            distributors = list(result.scalars().all())
+
+        for distributor in distributors:
+            slug = distributor.slug
+
+            if slug not in DISTRIBUTOR_SCRAPERS:
+                logger.warning(f"No scraper for distributor: {slug}")
+                continue
+
+            try:
+                logger.info(f"Scraping {slug}...")
+                started_at = datetime.utcnow()
+
+                # Get credentials and create scraper
+                credentials = await session_manager.get_session(slug)
+                scraper_class = DISTRIBUTOR_SCRAPERS[slug]
+                scraper = scraper_class(credentials)
+
+                # Run scraper
+                scrape_result = await scraper.run()
+
+                # Process through data pipeline
+                if scrape_result.products:
+                    async with get_db_context() as db:
+                        pipeline = DataPipeline(db)
+                        stats = await pipeline.process_scrape_result(scrape_result, slug)
+
+                    results[slug] = {
+                        "success": True,
+                        "products_scraped": scrape_result.products_count,
+                        "products_created": stats.products_created,
+                        "products_matched": stats.products_matched,
+                        "products_queued": stats.products_queued,
+                        "errors": len(stats.errors),
+                        "duration_seconds": (datetime.utcnow() - started_at).total_seconds(),
+                    }
+                else:
+                    results[slug] = {
+                        "success": True,
+                        "products_scraped": 0,
+                        "errors": len(scrape_result.errors),
+                    }
+
+                # Update scraper status
+                _scraper_status[slug] = {
+                    "last_run": datetime.utcnow().isoformat(),
+                    "status": "success",
+                    "products": scrape_result.products_count,
+                }
+
+            except Exception as e:
+                logger.error(f"Error scraping {slug}: {e}")
+                results[slug] = {
+                    "success": False,
+                    "error": str(e),
+                }
+                _scraper_status[slug] = {
+                    "last_run": datetime.utcnow().isoformat(),
+                    "status": "failed",
+                    "error": str(e),
+                }
+
+        return results
+
+    try:
+        return run_async(_run())
+    except Exception as e:
+        logger.error(f"Distributor scrapers failed: {e}")
+        self.retry(countdown=600)  # Retry in 10 minutes
+
+
+@celery_app.task(bind=True, max_retries=2)
+def scrape_distributor(self, slug: str, categories: Optional[list[str]] = None):
+    """
+    Scrape a single distributor on demand.
+
+    Args:
+        slug: Distributor slug (e.g., 'libdib')
+        categories: Optional list of categories to scrape
+    """
+    logger.info(f"On-demand scrape for distributor: {slug}")
+
+    async def _run():
+        from dotenv import load_dotenv
+        load_dotenv()
+
+        from app.scrapers.distributors import DISTRIBUTOR_SCRAPERS, SessionManager
+        from app.services.data_pipeline import DataPipeline
+
+        if slug not in DISTRIBUTOR_SCRAPERS:
+            return {"error": f"Unknown distributor: {slug}"}
+
+        session_manager = SessionManager(use_aws=False)
+        credentials = await session_manager.get_session(slug)
+
+        scraper_class = DISTRIBUTOR_SCRAPERS[slug]
+        scraper = scraper_class(credentials)
+
+        # Run scraper
+        scrape_result = await scraper.run(categories=categories)
+
+        # Process through pipeline
+        if scrape_result.products:
+            async with get_db_context() as db:
+                pipeline = DataPipeline(db)
+                stats = await pipeline.process_scrape_result(scrape_result, slug)
+
+            return {
+                "distributor": slug,
+                "products_scraped": scrape_result.products_count,
+                "products_created": stats.products_created,
+                "products_matched": stats.products_matched,
+                "price_records": stats.price_records,
+                "inventory_records": stats.inventory_records,
+            }
+        else:
+            return {
+                "distributor": slug,
+                "products_scraped": 0,
+                "errors": scrape_result.errors[:5],
+            }
+
+    try:
+        return run_async(_run())
+    except Exception as e:
+        logger.error(f"Scrape failed for {slug}: {e}")
+        self.retry(countdown=300)
+
+
+@celery_app.task
+def calculate_enhanced_trends():
+    """
+    Calculate enhanced trend scores using distributor data.
+
+    Uses the new TrendScorer that incorporates:
+    - Retail score (distributor presence)
+    - Price score (pricing patterns)
+    - Inventory score (stock signals)
+    """
+    logger.info("Calculating enhanced trend scores...")
+
+    async def _run():
+        from app.services.trend_scorer import TrendScorer
+
+        async with get_db_context() as db:
+            scorer = TrendScorer(db)
+            count = await scorer.calculate_all_scores()
+
+        return {
+            "scores_calculated": count,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    return run_async(_run())
+
+
+@celery_app.task
+def get_scraper_status():
+    """
+    Get current status of all scrapers.
+
+    Returns health information for monitoring.
+    """
+    return {
+        "scrapers": _scraper_status,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+@celery_app.task
+def check_scraper_health():
+    """
+    Check scraper health and alert on failures.
+
+    Monitors consecutive failures and stale data.
+    """
+    logger.info("Checking scraper health...")
+
+    alerts = []
+    now = datetime.utcnow()
+
+    for slug, status in _scraper_status.items():
+        # Check for failures
+        if status.get("status") == "failed":
+            alerts.append({
+                "type": "scraper_failed",
+                "distributor": slug,
+                "error": status.get("error"),
+            })
+
+        # Check for stale data (no run in 24+ hours)
+        last_run = status.get("last_run")
+        if last_run:
+            last_run_dt = datetime.fromisoformat(last_run)
+            hours_since = (now - last_run_dt).total_seconds() / 3600
+            if hours_since > 24:
+                alerts.append({
+                    "type": "stale_data",
+                    "distributor": slug,
+                    "hours_since_last_run": round(hours_since, 1),
+                })
+
+    return {
+        "healthy": len(alerts) == 0,
+        "alerts": alerts,
+        "checked_at": now.isoformat(),
+    }

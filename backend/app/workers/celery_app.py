@@ -38,7 +38,10 @@ celery_app.conf.update(
     task_routes={
         "app.workers.tasks.run_tier1_scrapers": {"queue": "scrapers"},
         "app.workers.tasks.run_tier2_scrapers": {"queue": "scrapers"},
+        "app.workers.tasks.scrape_all_distributors": {"queue": "scrapers"},
+        "app.workers.tasks.scrape_distributor": {"queue": "scrapers"},
         "app.workers.tasks.calculate_trend_scores": {"queue": "default"},
+        "app.workers.tasks.calculate_enhanced_trends": {"queue": "default"},
         "app.workers.tasks.train_models": {"queue": "ml"},
         "app.workers.tasks.generate_forecasts": {"queue": "ml"},
         "app.workers.tasks.check_model_drift": {"queue": "ml"},
@@ -58,10 +61,31 @@ celery_app.conf.update(
             "options": {"queue": "scrapers"},
         },
 
-        # Trend calculation
+        # Distributor scraping (Phase 5) - hourly
+        "scrape-distributors-hourly": {
+            "task": "app.workers.tasks.scrape_all_distributors",
+            "schedule": crontab(minute=15),  # :15 past every hour
+            "options": {"queue": "scrapers"},
+        },
+
+        # Trend calculation - legacy (signals-based)
         "calculate-scores-hourly": {
             "task": "app.workers.tasks.calculate_trend_scores",
             "schedule": crontab(minute=0),  # Every hour
+            "options": {"queue": "default"},
+        },
+
+        # Enhanced trend calculation (distributor-based) - runs after scraping
+        "calculate-enhanced-trends-hourly": {
+            "task": "app.workers.tasks.calculate_enhanced_trends",
+            "schedule": crontab(minute=45),  # :45 past every hour (after scrape completes)
+            "options": {"queue": "default"},
+        },
+
+        # Scraper health check - every 6 hours
+        "check-scraper-health": {
+            "task": "app.workers.tasks.check_scraper_health",
+            "schedule": crontab(minute=0, hour="*/6"),
             "options": {"queue": "default"},
         },
 

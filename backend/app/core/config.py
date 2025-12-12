@@ -74,6 +74,23 @@ class Settings(BaseSettings):
     social_api_key: Optional[str] = None
     openai_api_key: Optional[str] = None
 
+    # Distributor Credentials - LibDib
+    libdib_email: Optional[str] = None
+    libdib_password: Optional[str] = None
+    libdib_entity_slug: Optional[str] = None
+    libdib_session_id: Optional[str] = None
+    libdib_csrf_token: Optional[str] = None
+
+    # Distributor Credentials - Southern Glazer's (SGWS)
+    sgws_email: Optional[str] = None
+    sgws_password: Optional[str] = None
+    sgws_account_id: Optional[str] = None
+
+    # Distributor Credentials - RNDC (Republic National Distributing Company)
+    rndc_email: Optional[str] = None
+    rndc_password: Optional[str] = None
+    rndc_account_id: Optional[str] = None
+
     # CORS
     allowed_origins: str = "http://localhost:3000"
 
