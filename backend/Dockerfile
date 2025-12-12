@@ -20,10 +20,12 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY app/ ./app/
 COPY alembic/ ./alembic/
 COPY alembic.ini .
+COPY scripts/entrypoint.sh .
 
-# Create non-root user
+# Create non-root user and make entrypoint executable
 RUN useradd -m -u 1000 appuser && \
-    chown -R appuser:appuser /app
+    chown -R appuser:appuser /app && \
+    chmod +x /app/entrypoint.sh
 
 USER appuser
 
@@ -39,5 +41,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Default command (API server)
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Default command (uses entrypoint for optional migrations)
+CMD ["/app/entrypoint.sh"]

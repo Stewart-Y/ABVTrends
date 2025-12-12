@@ -5,9 +5,10 @@ Configures Alembic for async SQLAlchemy migrations.
 """
 
 import asyncio
+import ssl
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, pool, create_engine
 from sqlalchemy.engine import Connection
 
 from alembic import context
@@ -94,10 +95,16 @@ def run_migrations_online() -> None:
     In this scenario we need to create an Engine and associate a
     connection with the context.
     """
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
+    # Build connect_args with SSL if required (psycopg2 uses sslmode, not ssl_context)
+    connect_args = {}
+    if settings.db_ssl_required:
+        connect_args["sslmode"] = "require"
+
+    # Create engine directly with settings for better control
+    connectable = create_engine(
+        settings.sync_database_url,
         poolclass=pool.NullPool,
+        connect_args=connect_args,
     )
 
     with connectable.connect() as connection:
