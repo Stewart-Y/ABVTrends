@@ -91,6 +91,17 @@ class Settings(BaseSettings):
     rndc_password: Optional[str] = None
     rndc_account_id: Optional[str] = None
 
+    # Distributor Credentials - SipMarket (Crest Beverage / Reyes)
+    sipmarket_email: Optional[str] = None
+    sipmarket_password: Optional[str] = None
+
+    # Distributor Credentials - Park Street
+    parkstreet_email: Optional[str] = None
+    parkstreet_password: Optional[str] = None
+
+    # Database SSL (for AWS RDS)
+    db_ssl_required: bool = False
+
     # CORS
     allowed_origins: str = "http://localhost:3000"
 

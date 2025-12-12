@@ -1,0 +1,76 @@
+{
+    "family": "abvtrends-prod-backend",
+    "taskRoleArn": "arn:aws:iam::911167925148:role/abvtrends-prod-ecs-task",
+    "executionRoleArn": "arn:aws:iam::911167925148:role/abvtrends-prod-ecs-exec",
+    "networkMode": "awsvpc",
+    "containerDefinitions": [
+        {
+            "name": "backend",
+            "image": "911167925148.dkr.ecr.us-east-1.amazonaws.com/abvtrends-prod-backend:latest",
+            "cpu": 0,
+            "portMappings": [
+                {
+                    "containerPort": 8000,
+                    "hostPort": 8000,
+                    "protocol": "tcp"
+                }
+            ],
+            "essential": true,
+            "environment": [
+                {
+                    "name": "DATABASE_URL",
+                    "value": "postgresql+asyncpg://abvtrends:ABVTrends2024@abvtrends-prod-postgres.ccda0i660i1s.us-east-1.rds.amazonaws.com:5432/abvtrends"
+                },
+                {
+                    "name": "DEMO_MODE",
+                    "value": "false"
+                },
+                {
+                    "name": "DEPLOY_TIMESTAMP",
+                    "value": "2025-12-12-v16-psycopg2-ssl"
+                },
+                {
+                    "name": "DEBUG",
+                    "value": "false"
+                },
+                {
+                    "name": "ENVIRONMENT",
+                    "value": "production"
+                },
+                {
+                    "name": "DB_SSL_REQUIRED",
+                    "value": "true"
+                },
+                {
+                    "name": "RUN_MIGRATIONS",
+                    "value": "true"
+                },
+                {
+                    "name": "PARKSTREET_EMAIL",
+                    "value": "accounting@vistawinespirits.com"
+                },
+                {
+                    "name": "PARKSTREET_PASSWORD",
+                    "value": "2hET2oBe#us"
+                }
+            ],
+            "secrets": [
+                {
+                    "name": "OPENAI_API_KEY",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:911167925148:secret:abvtrends/prod/api-keys-Lat3Kr:OPENAI_API_KEY::"
+                }
+            ],
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "/ecs/abvtrends-prod/backend",
+                    "awslogs-region": "us-east-1",
+                    "awslogs-stream-prefix": "ecs"
+                }
+            }
+        }
+    ],
+    "requiresCompatibilities": ["FARGATE"],
+    "cpu": "256",
+    "memory": "512"
+}

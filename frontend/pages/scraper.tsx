@@ -32,7 +32,11 @@ interface ScraperStatus {
   logs_count: number;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+// Use relative URL in production (works with ALB routing), absolute URL for local dev
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ||
+  (typeof window !== 'undefined' && window.location.hostname !== 'localhost'
+    ? ''
+    : 'http://localhost:8000');
 
 export default function ScraperPage() {
   const [mounted, setMounted] = useState(false);

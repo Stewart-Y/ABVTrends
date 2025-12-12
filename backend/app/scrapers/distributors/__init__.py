@@ -8,6 +8,8 @@ from app.scrapers.distributors.base import (
 from app.scrapers.distributors.libdib import LibDibScraper
 from app.scrapers.distributors.rndc import RNDCScraper
 from app.scrapers.distributors.sgws import SGWSScraper
+from app.scrapers.distributors.sipmarket import SipMarketScraper
+from app.scrapers.distributors.parkstreet import ParkStreetScraper
 from app.scrapers.distributors.session_manager import SessionManager
 
 # Registry of available distributor scrapers
@@ -15,6 +17,8 @@ DISTRIBUTOR_SCRAPERS: dict[str, type[BaseDistributorScraper]] = {
     "libdib": LibDibScraper,
     "sgws": SGWSScraper,
     "rndc": RNDCScraper,
+    "sipmarket": SipMarketScraper,
+    "parkstreet": ParkStreetScraper,
     # Add more scrapers here as they're implemented:
     # "breakthru": BreakthruScraper,
     # "provi": ProviScraper,
@@ -31,6 +35,8 @@ __all__ = [
     "LibDibScraper",
     "RNDCScraper",
     "SGWSScraper",
+    "SipMarketScraper",
+    "ParkStreetScraper",
     # Registry
     "DISTRIBUTOR_SCRAPERS",
 ]

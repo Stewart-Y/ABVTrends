@@ -5,6 +5,7 @@ Async SQLAlchemy setup with connection pooling and session management.
 """
 
 import logging
+import ssl
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -26,6 +27,15 @@ class Base(DeclarativeBase):
     pass
 
 
+# Create SSL context for AWS RDS connections (controlled by DB_SSL_REQUIRED env var)
+# When true, creates SSL context for secure connection to RDS
+connect_args = {}
+if settings.db_ssl_required:
+    ssl_context = ssl.create_default_context()
+    ssl_context.check_hostname = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+    connect_args["ssl"] = ssl_context
+
 # Create async engine with connection pooling
 engine = create_async_engine(
     settings.async_database_url,
@@ -33,6 +43,7 @@ engine = create_async_engine(
     max_overflow=settings.db_max_overflow,
     pool_pre_ping=True,  # Verify connections before use
     echo=settings.debug,  # Log SQL statements in debug mode
+    connect_args=connect_args,
 )
 
 # Session factory
