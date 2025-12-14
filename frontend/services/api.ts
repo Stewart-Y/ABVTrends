@@ -4,11 +4,24 @@
  * Typed API client for communicating with the FastAPI backend.
  */
 
-// Use relative URL in production (works with ALB routing), absolute URL for local dev
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ||
-  (typeof window !== 'undefined' && window.location.hostname !== 'localhost'
-    ? '/api/v1'
-    : 'http://localhost:8000/api/v1');
+// API base URL - always use relative path in production
+// The ALB routes /api/* to the backend service
+// For local development, use localhost:8000
+const API_BASE_URL = '/api/v1';
+const LOCAL_API_URL = 'http://localhost:8000/api/v1';
+
+function getApiBaseUrl(): string {
+  // Must check window existence for SSR
+  if (typeof window === 'undefined') {
+    return API_BASE_URL;
+  }
+  // Runtime check - can't be optimized away by bundler
+  const hostname = window.location.hostname;
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return LOCAL_API_URL;
+  }
+  return API_BASE_URL;
+}
 
 // Types
 
@@ -101,7 +114,7 @@ async function fetchApi<T>(
   endpoint: string,
   options?: RequestInit
 ): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`;
+  const url = `${getApiBaseUrl()}${endpoint}`;
 
   const response = await fetch(url, {
     headers: {
