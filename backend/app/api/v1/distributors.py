@@ -32,7 +32,7 @@ router = APIRouter(prefix="/distributors", tags=["distributors"])
 class DistributorResponse(BaseModel):
     """Response model for a distributor."""
 
-    id: UUID
+    id: int
     name: str
     slug: str
     website_url: Optional[str] = None
@@ -115,7 +115,7 @@ async def list_distributors(
                 id=dist.id,
                 name=dist.name,
                 slug=dist.slug,
-                website_url=dist.website_url,
+                website_url=dist.website,
                 is_active=dist.is_active,
                 scraper_class=dist.scraper_class,
                 last_scrape_at=last_run.started_at if last_run else None,

@@ -27,7 +27,7 @@
                 },
                 {
                     "name": "DEPLOY_TIMESTAMP",
-                    "value": "2025-12-12-v16-psycopg2-ssl"
+                    "value": "2025-12-14-v18-id-type-fix"
                 },
                 {
                     "name": "DEBUG",
@@ -43,7 +43,7 @@
                 },
                 {
                     "name": "RUN_MIGRATIONS",
-                    "value": "true"
+                    "value": "false"
                 },
                 {
                     "name": "PARKSTREET_EMAIL",
