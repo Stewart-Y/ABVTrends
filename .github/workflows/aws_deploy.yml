@@ -131,31 +131,76 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Update backend ECS service
+      - name: Run database migrations
+        run: |
+          echo "Running database migrations..."
+
+          # Get network config from existing service
+          SERVICE_INFO=$(aws ecs describe-services \
+            --cluster abvtrends-${{ env.ENVIRONMENT }}-cluster \
+            --services abvtrends-${{ env.ENVIRONMENT }}-backend \
+            --query 'services[0].networkConfiguration.awsvpcConfiguration' \
+            --output json)
+
+          SUBNETS=$(echo $SERVICE_INFO | jq -r '.subnets | join(",")')
+          SECURITY_GROUPS=$(echo $SERVICE_INFO | jq -r '.securityGroups | join(",")')
+
+          # Run migration task
+          TASK_ARN=$(aws ecs run-task \
+            --cluster abvtrends-${{ env.ENVIRONMENT }}-cluster \
+            --task-definition abvtrends-${{ env.ENVIRONMENT }}-backend \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SECURITY_GROUPS],assignPublicIp=DISABLED}" \
+            --overrides '{
+              "containerOverrides": [{
+                "name": "backend",
+                "command": ["/bin/bash", "-c", "alembic upgrade head"]
+              }]
+            }' \
+            --query 'tasks[0].taskArn' \
+            --output text)
+
+          echo "Migration task: $TASK_ARN"
+
+          # Wait for task to complete
+          aws ecs wait tasks-stopped \
+            --cluster abvtrends-${{ env.ENVIRONMENT }}-cluster \
+            --tasks $TASK_ARN
+
+          # Check exit code
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster abvtrends-${{ env.ENVIRONMENT }}-cluster \
+            --tasks $TASK_ARN \
+            --query 'tasks[0].containers[0].exitCode' \
+            --output text)
+
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "Migration failed with exit code: $EXIT_CODE"
+            exit 1
+          fi
+
+          echo "Migrations completed successfully!"
+
+      - name: Deploy backend
         run: |
           aws ecs update-service \
             --cluster abvtrends-${{ env.ENVIRONMENT }}-cluster \
             --service abvtrends-${{ env.ENVIRONMENT }}-backend \
             --force-new-deployment
 
-      - name: Update frontend ECS service
+      - name: Deploy frontend
         run: |
           aws ecs update-service \
             --cluster abvtrends-${{ env.ENVIRONMENT }}-cluster \
             --service abvtrends-${{ env.ENVIRONMENT }}-frontend \
             --force-new-deployment
 
-      - name: Wait for backend service stability
+      - name: Wait for services to stabilize
         run: |
+          echo "Waiting for ECS services to stabilize..."
           aws ecs wait services-stable \
             --cluster abvtrends-${{ env.ENVIRONMENT }}-cluster \
-            --services abvtrends-${{ env.ENVIRONMENT }}-backend
-
-      - name: Wait for frontend service stability
-        run: |
-          aws ecs wait services-stable \
-            --cluster abvtrends-${{ env.ENVIRONMENT }}-cluster \
-            --services abvtrends-${{ env.ENVIRONMENT }}-frontend
+            --services abvtrends-${{ env.ENVIRONMENT }}-backend abvtrends-${{ env.ENVIRONMENT }}-frontend
 
       - name: Get deployment URL
         id: deploy
