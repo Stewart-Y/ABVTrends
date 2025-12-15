@@ -32,8 +32,9 @@ class Base(DeclarativeBase):
 connect_args = {}
 if settings.db_ssl_required:
     ssl_context = ssl.create_default_context()
-    ssl_context.check_hostname = False
-    ssl_context.verify_mode = ssl.CERT_NONE
+    # Enable proper certificate verification for production security
+    ssl_context.check_hostname = True
+    ssl_context.verify_mode = ssl.CERT_REQUIRED
     connect_args["ssl"] = ssl_context
 
 # Create async engine with connection pooling

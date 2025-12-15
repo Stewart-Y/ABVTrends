@@ -92,17 +92,20 @@ app = FastAPI(
     redoc_url="/redoc" if settings.debug else None,
 )
 
-# Configure CORS
+# Configure CORS - restrict to specific domains only
+# Parse allowed origins from settings (comma-separated in env var)
+allowed_origins = [
+    origin.strip()
+    for origin in settings.allowed_origins.split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "https://abvtrends.vercel.app",
-        "https://*.vercel.app",
-    ],
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-API-Key"],
 )
 
 

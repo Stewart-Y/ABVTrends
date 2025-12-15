@@ -10,11 +10,13 @@ dist/
 build/
 .eggs/
 
-# Environment
+# Environment - NEVER COMMIT CREDENTIALS
 .env
 .env.local
 .env.*.local
 *.env
+!.env.example
+!infra/.env.example
 
 # IDE
 .vscode/
@@ -56,4 +58,20 @@ celerybeat.pid
 *.bak
 *.tmp
 .cache/
+
+# Terraform - sensitive state files
 terraform.tfvars
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+# Security - NEVER COMMIT
+*.pem
+*.key
+*.cert
+secrets/
+credentials/
+
+# Test files that may contain credentials
+backend/test_*.py
+**/test_*_scrape.py

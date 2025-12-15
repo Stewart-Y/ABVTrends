@@ -18,16 +18,12 @@
             "essential": true,
             "environment": [
                 {
-                    "name": "DATABASE_URL",
-                    "value": "postgresql+asyncpg://abvtrends:ABVTrends2024@abvtrends-prod-postgres.ccda0i660i1s.us-east-1.rds.amazonaws.com:5432/abvtrends"
-                },
-                {
                     "name": "DEMO_MODE",
                     "value": "false"
                 },
                 {
                     "name": "DEPLOY_TIMESTAMP",
-                    "value": "2025-12-14-v24-all-distributors"
+                    "value": "2025-12-14-v27-security-hardening"
                 },
                 {
                     "name": "DEBUG",
@@ -46,26 +42,110 @@
                     "value": "true"
                 },
                 {
-                    "name": "PARKSTREET_EMAIL",
-                    "value": "accounting@vistawinespirits.com"
+                    "name": "LIBDIB_ENTITY_SLUG",
+                    "value": "vista-wine-and-spirits-santee"
                 },
                 {
-                    "name": "PARKSTREET_PASSWORD",
-                    "value": "2hET2oBe#us"
+                    "name": "SGWS_ACCOUNT_ID",
+                    "value": "102376"
                 },
                 {
-                    "name": "BREAKTHRU_EMAIL",
-                    "value": "Stewart@vistawinespirits.com"
+                    "name": "RNDC_ACCOUNT_ID",
+                    "value": "601009207"
                 },
                 {
-                    "name": "BREAKTHRU_PASSWORD",
-                    "value": "4fJf/B5Uw3KX%5v"
+                    "name": "SCRAPER_ITEMS_PER_RUN",
+                    "value": "50"
+                },
+                {
+                    "name": "SCRAPER_CATCHUP_ITEMS_PER_RUN",
+                    "value": "100"
+                },
+                {
+                    "name": "SCRAPER_NEW_ITEMS_RATIO",
+                    "value": "0.8"
+                },
+                {
+                    "name": "SCRAPER_REFRESH_ITEMS_RATIO",
+                    "value": "0.2"
+                },
+                {
+                    "name": "SCRAPER_MORNING_WINDOW_START",
+                    "value": "7"
+                },
+                {
+                    "name": "SCRAPER_MORNING_WINDOW_END",
+                    "value": "11"
+                },
+                {
+                    "name": "SCRAPER_EVENING_WINDOW_START",
+                    "value": "19"
+                },
+                {
+                    "name": "SCRAPER_EVENING_WINDOW_END",
+                    "value": "23"
+                },
+                {
+                    "name": "SCRAPER_MAX_JITTER_MINUTES",
+                    "value": "60"
                 }
             ],
             "secrets": [
                 {
+                    "name": "DATABASE_URL",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:911167925148:secret:abvtrends/prod/database-url"
+                },
+                {
                     "name": "OPENAI_API_KEY",
                     "valueFrom": "arn:aws:secretsmanager:us-east-1:911167925148:secret:abvtrends/prod/api-keys-Lat3Kr:OPENAI_API_KEY::"
+                },
+                {
+                    "name": "PARKSTREET_EMAIL",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:911167925148:secret:abvtrends/prod/distributor-credentials:PARKSTREET_EMAIL::"
+                },
+                {
+                    "name": "PARKSTREET_PASSWORD",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:911167925148:secret:abvtrends/prod/distributor-credentials:PARKSTREET_PASSWORD::"
+                },
+                {
+                    "name": "BREAKTHRU_EMAIL",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:911167925148:secret:abvtrends/prod/distributor-credentials:BREAKTHRU_EMAIL::"
+                },
+                {
+                    "name": "BREAKTHRU_PASSWORD",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:911167925148:secret:abvtrends/prod/distributor-credentials:BREAKTHRU_PASSWORD::"
+                },
+                {
+                    "name": "LIBDIB_EMAIL",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:911167925148:secret:abvtrends/prod/distributor-credentials:LIBDIB_EMAIL::"
+                },
+                {
+                    "name": "LIBDIB_PASSWORD",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:911167925148:secret:abvtrends/prod/distributor-credentials:LIBDIB_PASSWORD::"
+                },
+                {
+                    "name": "SGWS_EMAIL",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:911167925148:secret:abvtrends/prod/distributor-credentials:SGWS_EMAIL::"
+                },
+                {
+                    "name": "SGWS_PASSWORD",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:911167925148:secret:abvtrends/prod/distributor-credentials:SGWS_PASSWORD::"
+                },
+                {
+                    "name": "RNDC_EMAIL",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:911167925148:secret:abvtrends/prod/distributor-credentials:RNDC_EMAIL::"
+                },
+                {
+                    "name": "RNDC_PASSWORD",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:911167925148:secret:abvtrends/prod/distributor-credentials:RNDC_PASSWORD::"
+                },
+                {
+                    "name": "SIPMARKET_EMAIL",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:911167925148:secret:abvtrends/prod/distributor-credentials:SIPMARKET_EMAIL::"
+                },
+                {
+                    "name": "SIPMARKET_PASSWORD",
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:911167925148:secret:abvtrends/prod/distributor-credentials:SIPMARKET_PASSWORD::"
                 }
             ],
             "logConfiguration": {

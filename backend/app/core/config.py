@@ -99,11 +99,40 @@ class Settings(BaseSettings):
     parkstreet_email: Optional[str] = None
     parkstreet_password: Optional[str] = None
 
+    # Distributor Credentials - Breakthru Beverage
+    breakthru_email: Optional[str] = None
+    breakthru_password: Optional[str] = None
+
+    # Alerting & Notifications
+    slack_webhook_url: Optional[str] = None
+    alert_email_to: Optional[str] = None
+    alert_email_from: Optional[str] = None
+    sendgrid_api_key: Optional[str] = None
+
+    # Circuit Breaker Settings
+    circuit_breaker_failure_threshold: int = 5
+    circuit_breaker_recovery_timeout: int = 300  # seconds
+
     # Database SSL (for AWS RDS)
     db_ssl_required: bool = False
 
-    # CORS
-    allowed_origins: str = "http://localhost:3000"
+    # CORS - comma-separated list of allowed origins (NO wildcards in production)
+    allowed_origins: str = "http://localhost:3000,https://abvtrends.vercel.app"
+
+    # Production Scraper Settings
+    # Items per run (catch-up: 100, maintenance: 50)
+    scraper_items_per_run: int = 50
+    scraper_catchup_items_per_run: int = 100
+    # Hybrid scraping ratio (80% new, 20% refresh)
+    scraper_new_items_ratio: float = 0.8
+    scraper_refresh_items_ratio: float = 0.2
+    # Time windows (hours in UTC)
+    scraper_morning_window_start: int = 7  # 7 AM UTC
+    scraper_morning_window_end: int = 11  # 11 AM UTC
+    scraper_evening_window_start: int = 19  # 7 PM UTC
+    scraper_evening_window_end: int = 23  # 11 PM UTC
+    # Max jitter in minutes within window
+    scraper_max_jitter_minutes: int = 60
 
     @property
     def async_database_url(self) -> str:
