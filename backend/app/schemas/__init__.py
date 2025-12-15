@@ -40,6 +40,17 @@ from app.schemas.trend_score import (
     TrendScoreListResponse,
     TrendScoreResponse,
 )
+from app.schemas.auth import (
+    UserCreate,
+    LoginRequest,
+    ApiKeyCreate,
+    TokenResponse,
+    UserResponse,
+    ApiKeyResponse,
+    ApiKeyListItem,
+    ApiKeyListResponse,
+    AuthError,
+)
 
 __all__ = [
     # Product
@@ -81,4 +92,14 @@ __all__ = [
     "TrendingListResponse",
     "TopTrendsResponse",
     "TrendFilter",
+    # Auth
+    "UserCreate",
+    "LoginRequest",
+    "ApiKeyCreate",
+    "TokenResponse",
+    "UserResponse",
+    "ApiKeyResponse",
+    "ApiKeyListItem",
+    "ApiKeyListResponse",
+    "AuthError",
 ]

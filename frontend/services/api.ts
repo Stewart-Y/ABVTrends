@@ -108,20 +108,37 @@ export interface TopTrends {
   generated_at: string;
 }
 
+// Auth helpers
+function getAuthToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem('abvtrends_token');
+}
+
+function getAuthHeaders(): Record<string, string> {
+  const token = getAuthToken();
+  if (!token) return {};
+  return { Authorization: `Bearer ${token}` };
+}
+
 // API Functions
 
 async function fetchApi<T>(
   endpoint: string,
-  options?: RequestInit
+  options?: RequestInit & { requireAuth?: boolean }
 ): Promise<T> {
   const url = `${getApiBaseUrl()}${endpoint}`;
+  const { requireAuth, ...fetchOptions } = options || {};
+
+  // Add auth headers if token exists or if explicitly required
+  const authHeaders = requireAuth ? getAuthHeaders() : {};
 
   const response = await fetch(url, {
     headers: {
       'Content-Type': 'application/json',
-      ...options?.headers,
+      ...authHeaders,
+      ...fetchOptions?.headers,
     },
-    ...options,
+    ...fetchOptions,
   });
 
   if (!response.ok) {
@@ -130,6 +147,14 @@ async function fetchApi<T>(
   }
 
   return response.json();
+}
+
+// Authenticated API helper (always sends auth header)
+async function fetchAuthApi<T>(
+  endpoint: string,
+  options?: RequestInit
+): Promise<T> {
+  return fetchApi<T>(endpoint, { ...options, requireAuth: true });
 }
 
 // Trends API
@@ -485,7 +510,64 @@ export async function triggerScrape(
     categories.forEach(cat => params.append('categories', cat));
   }
   const query = params.toString();
-  return fetchApi(`/distributors/${slug}/scrape${query ? `?${query}` : ''}`, {
+  // Requires admin authentication
+  return fetchAuthApi(`/distributors/${slug}/scrape${query ? `?${query}` : ''}`, {
     method: 'POST',
+  });
+}
+
+// ==========================================
+// Scheduler API (Admin only)
+// ==========================================
+
+export interface SchedulerStatus {
+  is_running: boolean;
+  jobs_count: number;
+  last_run: string | null;
+  next_runs: Record<string, string>;
+}
+
+export async function getSchedulerStatus(): Promise<{ status: string; scheduler: SchedulerStatus }> {
+  return fetchAuthApi('/scheduler/status');
+}
+
+export async function startScheduler(): Promise<{ status: string; message: string; scheduler?: SchedulerStatus }> {
+  return fetchAuthApi('/scheduler/start', { method: 'POST' });
+}
+
+export async function stopScheduler(): Promise<{ status: string; message: string }> {
+  return fetchAuthApi('/scheduler/stop', { method: 'POST' });
+}
+
+export async function getNextRuns(): Promise<{ status: string; next_runs: Record<string, string> }> {
+  return fetchAuthApi('/scheduler/next-runs');
+}
+
+// ==========================================
+// API Key Management (Authenticated)
+// ==========================================
+
+export interface ApiKey {
+  id: string;
+  name: string;
+  is_active: boolean;
+  last_used_at: string | null;
+  created_at: string;
+}
+
+export async function getApiKeys(): Promise<{ api_keys: ApiKey[] }> {
+  return fetchAuthApi('/auth/api-keys');
+}
+
+export async function createApiKey(name: string): Promise<{ api_key: ApiKey; key: string }> {
+  return fetchAuthApi('/auth/api-keys', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function revokeApiKey(keyId: string): Promise<{ message: string }> {
+  return fetchAuthApi(`/auth/api-keys/${keyId}`, {
+    method: 'DELETE',
   });
 }

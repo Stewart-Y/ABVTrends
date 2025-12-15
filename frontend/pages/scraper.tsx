@@ -2,11 +2,12 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Sidebar } from '@/components/Sidebar';
+import { Layout } from '@/components/Layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { ProtectedRoute } from '@/components/ProtectedRoute';
 import {
   getScraperHealth,
   getRecentScrapeRuns,
@@ -209,41 +210,33 @@ export default function ScraperPage() {
 
   const progressPercent = status.total > 0 ? (status.progress / status.total) * 100 : 0;
 
+  const headerActions = (
+    <div className="flex items-center gap-1.5 sm:gap-2">
+      <Badge variant={isStreaming ? 'default' : 'secondary'} className="gap-1 sm:gap-1.5 text-xs" data-testid="connection-status">
+        <div
+          className={cn(
+            'w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full',
+            isStreaming ? 'bg-green-400 animate-pulse' : 'bg-gray-400'
+          )}
+        />
+        <span className="hidden sm:inline">{isStreaming ? 'Connected' : 'Disconnected'}</span>
+      </Badge>
+      <Badge variant={status.is_running ? 'default' : 'outline'} className="text-xs" data-testid="running-status">
+        {status.is_running ? '🟢' : '⚫'}
+        <span className="hidden sm:inline ml-1">{status.is_running ? 'Running' : 'Idle'}</span>
+      </Badge>
+    </div>
+  );
+
   return (
-    <div className="flex min-h-screen bg-background" data-testid="scraper-page">
-      <Sidebar />
-
-      <main className="flex-1 ml-64">
-        {/* Header */}
-        <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-xl" data-testid="scraper-header">
-          <div className="flex items-center justify-between px-8 py-6">
-            <div>
-              <h1 className="text-2xl font-bold flex items-center gap-3" data-testid="scraper-title">
-                <span className="text-3xl">🤖</span>
-                AI Scraper Monitor
-              </h1>
-              <p className="text-muted-foreground mt-1">
-                Real-time monitoring of AI-powered data collection
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Badge variant={isStreaming ? 'default' : 'secondary'} className="gap-1.5" data-testid="connection-status">
-                <div
-                  className={cn(
-                    'w-2 h-2 rounded-full',
-                    isStreaming ? 'bg-green-400 animate-pulse' : 'bg-gray-400'
-                  )}
-                />
-                {isStreaming ? 'Connected' : 'Disconnected'}
-              </Badge>
-              <Badge variant={status.is_running ? 'default' : 'outline'} data-testid="running-status">
-                {status.is_running ? '🟢 Running' : '⚫ Idle'}
-              </Badge>
-            </div>
-          </div>
-        </header>
-
-        <div className="p-8 space-y-6">
+    <ProtectedRoute requireAdmin>
+      <Layout
+        title="AI Scraper Monitor"
+        subtitle="Real-time monitoring of AI-powered data collection"
+        headerActions={headerActions}
+        testId="scraper-page"
+      >
+        <div className="space-y-4 sm:space-y-6" data-testid="scraper-header">
           {/* Tab Navigation */}
           <div className="flex gap-2 border-b border-border pb-4">
             <Button
@@ -623,8 +616,8 @@ export default function ScraperPage() {
             </>
           )}
         </div>
-      </main>
-    </div>
+      </Layout>
+    </ProtectedRoute>
   );
 }
 

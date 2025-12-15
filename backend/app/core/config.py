@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     secret_key: str = "change-me-in-production-use-secrets-generate"
     api_key_header: str = "X-API-Key"
 
+    # JWT Authentication
+    jwt_expire_hours: int = 24
+    jwt_algorithm: str = "HS256"
+
     # Rate Limiting
     rate_limit_per_minute: int = 100
 

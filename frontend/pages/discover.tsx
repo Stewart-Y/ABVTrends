@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
-import { Sidebar } from '@/components/Sidebar';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Layout } from '@/components/Layout';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { getNewArrivals, getCelebrityBottles, getEarlyMovers, getDistributorArrivals, DiscoverProduct, DistributorArrival } from '@/services/api';
 import { cn, getTierColor } from '@/lib/utils';
@@ -39,53 +39,45 @@ export default function DiscoverPage() {
 
   if (!mounted) return null;
 
+  const headerActions = (
+    <Badge variant="outline" className="text-xs" data-testid="ai-curated-badge">
+      <span className="mr-1.5">✨</span>
+      <span className="hidden sm:inline">AI-Curated</span>
+      <span className="sm:hidden">AI</span>
+    </Badge>
+  );
+
   return (
-    <div className="flex min-h-screen bg-background" data-testid="discover-page">
-      <Sidebar />
-
-      <main className="flex-1 ml-64">
-        {/* Header */}
-        <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-xl" data-testid="discover-header">
-          <div className="flex items-center justify-between px-8 py-6">
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight" data-testid="discover-title">Discover</h1>
-              <p className="text-muted-foreground mt-1">
-                Explore curated collections and find your next opportunity
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <Badge variant="outline" className="text-xs" data-testid="ai-curated-badge">
-                <span className="mr-1.5">✨</span>
-                AI-Curated
-              </Badge>
-            </div>
-          </div>
-        </header>
-
-        <div className="p-8 space-y-10">
+    <Layout
+      title="Discover"
+      subtitle="Explore curated collections and find your next opportunity"
+      headerActions={headerActions}
+      testId="discover-page"
+    >
+      <div className="space-y-6 sm:space-y-8 lg:space-y-10" data-testid="discover-header">
           {/* New to ABVTrends Section */}
           <section className="animate-fade-in" style={{ animationDelay: '0ms' }} data-testid="new-arrivals-section">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="text-2xl font-bold flex items-center gap-3" data-testid="new-arrivals-title">
-                  <span className="text-2xl">🆕</span>
-                  New to ABVTrends
+            <div className="flex items-center justify-between mb-4 sm:mb-6">
+              <div className="min-w-0">
+                <h2 className="text-lg sm:text-xl lg:text-2xl font-bold flex items-center gap-2 sm:gap-3" data-testid="new-arrivals-title">
+                  <span className="text-lg sm:text-2xl flex-shrink-0">🆕</span>
+                  <span className="truncate">New to ABVTrends</span>
                 </h2>
-                <p className="text-sm text-muted-foreground mt-1">
+                <p className="text-xs sm:text-sm text-muted-foreground mt-0.5 sm:mt-1">
                   Recently added products and emerging trends
                 </p>
               </div>
             </div>
 
             {loadingNew ? (
-              <div className="flex items-center justify-center h-64" data-testid="new-arrivals-loading">
+              <div className="flex items-center justify-center h-48 sm:h-64" data-testid="new-arrivals-loading">
                 <div className="text-center">
-                  <div className="inline-block h-12 w-12 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent mb-4" />
-                  <p className="text-muted-foreground">Loading new arrivals...</p>
+                  <div className="inline-block h-10 w-10 sm:h-12 sm:w-12 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent mb-4" />
+                  <p className="text-sm text-muted-foreground">Loading new arrivals...</p>
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6" data-testid="new-arrivals-grid">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6" data-testid="new-arrivals-grid">
                 {newArrivals?.items?.map((product, idx) => (
                   <ProductCard key={product.id} product={product} index={idx} showNewBadge />
                 ))}
@@ -104,27 +96,27 @@ export default function DiscoverPage() {
 
           {/* Celebrity Bottles Section */}
           <section className="animate-fade-in" style={{ animationDelay: '100ms' }} data-testid="celebrity-section">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="text-2xl font-bold flex items-center gap-3" data-testid="celebrity-title">
-                  <span className="text-2xl">⭐</span>
-                  Celebrity Bottles
+            <div className="flex items-center justify-between mb-4 sm:mb-6">
+              <div className="min-w-0">
+                <h2 className="text-lg sm:text-xl lg:text-2xl font-bold flex items-center gap-2 sm:gap-3" data-testid="celebrity-title">
+                  <span className="text-lg sm:text-2xl flex-shrink-0">⭐</span>
+                  <span className="truncate">Celebrity Bottles</span>
                 </h2>
-                <p className="text-sm text-muted-foreground mt-1">
+                <p className="text-xs sm:text-sm text-muted-foreground mt-0.5 sm:mt-1">
                   Products with celebrity partnerships and affiliations
                 </p>
               </div>
             </div>
 
             {loadingCelebs ? (
-              <div className="flex items-center justify-center h-64" data-testid="celebrity-loading">
+              <div className="flex items-center justify-center h-48 sm:h-64" data-testid="celebrity-loading">
                 <div className="text-center">
-                  <div className="inline-block h-12 w-12 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent mb-4" />
-                  <p className="text-muted-foreground">Loading celebrity bottles...</p>
+                  <div className="inline-block h-10 w-10 sm:h-12 sm:w-12 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent mb-4" />
+                  <p className="text-sm text-muted-foreground">Loading celebrity bottles...</p>
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6" data-testid="celebrity-grid">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6" data-testid="celebrity-grid">
                 {celebrityBottles?.items?.map((product, idx) => (
                   <ProductCard key={product.id} product={product} index={idx} showCelebrity />
                 ))}
@@ -143,27 +135,27 @@ export default function DiscoverPage() {
 
           {/* Distributor Arrivals Section */}
           <section className="animate-fade-in" style={{ animationDelay: '200ms' }} data-testid="distributor-arrivals-section">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="text-2xl font-bold flex items-center gap-3" data-testid="distributor-arrivals-title">
-                  <span className="text-2xl">📦</span>
-                  New to Distributors
+            <div className="flex items-center justify-between mb-4 sm:mb-6">
+              <div className="min-w-0">
+                <h2 className="text-lg sm:text-xl lg:text-2xl font-bold flex items-center gap-2 sm:gap-3" data-testid="distributor-arrivals-title">
+                  <span className="text-lg sm:text-2xl flex-shrink-0">📦</span>
+                  <span className="truncate">New to Distributors</span>
                 </h2>
-                <p className="text-sm text-muted-foreground mt-1">
+                <p className="text-xs sm:text-sm text-muted-foreground mt-0.5 sm:mt-1">
                   Products recently added to distributor catalogs
                 </p>
               </div>
             </div>
 
             {loadingArrivals ? (
-              <div className="flex items-center justify-center h-64" data-testid="distributor-arrivals-loading">
+              <div className="flex items-center justify-center h-48 sm:h-64" data-testid="distributor-arrivals-loading">
                 <div className="text-center">
-                  <div className="inline-block h-12 w-12 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent mb-4" />
-                  <p className="text-muted-foreground">Loading distributor arrivals...</p>
+                  <div className="inline-block h-10 w-10 sm:h-12 sm:w-12 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent mb-4" />
+                  <p className="text-sm text-muted-foreground">Loading distributor arrivals...</p>
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6" data-testid="distributor-arrivals-grid">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6" data-testid="distributor-arrivals-grid">
                 {distributorArrivals?.items?.map((arrival, idx) => (
                   <DistributorArrivalCard key={`${arrival.product_id}-${arrival.distributor}`} arrival={arrival} index={idx} />
                 ))}
@@ -182,27 +174,27 @@ export default function DiscoverPage() {
 
           {/* Early Movers Section */}
           <section className="animate-fade-in" style={{ animationDelay: '300ms' }} data-testid="early-movers-section">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="text-2xl font-bold flex items-center gap-3" data-testid="early-movers-title">
-                  <span className="text-2xl">🚀</span>
-                  Early Movers
+            <div className="flex items-center justify-between mb-4 sm:mb-6">
+              <div className="min-w-0">
+                <h2 className="text-lg sm:text-xl lg:text-2xl font-bold flex items-center gap-2 sm:gap-3" data-testid="early-movers-title">
+                  <span className="text-lg sm:text-2xl flex-shrink-0">🚀</span>
+                  <span className="truncate">Early Movers</span>
                 </h2>
-                <p className="text-sm text-muted-foreground mt-1">
+                <p className="text-xs sm:text-sm text-muted-foreground mt-0.5 sm:mt-1">
                   Emerging products with high recent momentum
                 </p>
               </div>
             </div>
 
             {loadingEarly ? (
-              <div className="flex items-center justify-center h-64" data-testid="early-movers-loading">
+              <div className="flex items-center justify-center h-48 sm:h-64" data-testid="early-movers-loading">
                 <div className="text-center">
-                  <div className="inline-block h-12 w-12 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent mb-4" />
-                  <p className="text-muted-foreground">Loading early movers...</p>
+                  <div className="inline-block h-10 w-10 sm:h-12 sm:w-12 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent mb-4" />
+                  <p className="text-sm text-muted-foreground">Loading early movers...</p>
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6" data-testid="early-movers-grid">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6" data-testid="early-movers-grid">
                 {earlyMovers?.items?.map((product, idx) => (
                   <ProductCard key={product.id} product={product} index={idx} showVelocity />
                 ))}
@@ -219,8 +211,7 @@ export default function DiscoverPage() {
             )}
           </section>
         </div>
-      </main>
-    </div>
+    </Layout>
   );
 }
 

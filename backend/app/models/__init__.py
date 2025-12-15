@@ -17,6 +17,7 @@ from app.models.distributor import (
     ArticleMention,
     CurrentTrendScore,
 )
+from app.models.user import User, ApiKey, UserRole
 
 __all__ = [
     # Product
@@ -46,4 +47,8 @@ __all__ = [
     "Article",
     "ArticleMention",
     "CurrentTrendScore",
+    # User & Auth
+    "User",
+    "ApiKey",
+    "UserRole",
 ]

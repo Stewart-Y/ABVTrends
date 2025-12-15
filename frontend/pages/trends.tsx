@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
-import { Sidebar } from '@/components/Sidebar';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Layout } from '@/components/Layout';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { getTrendingProducts } from '@/services/api';
@@ -46,41 +46,32 @@ export default function TrendsExplorer() {
 
   if (!mounted) return null;
 
+  const headerActions = (
+    <Button variant="outline" size="sm" data-testid="export-button" className="hidden sm:flex">
+      <span className="mr-2">📤</span>
+      Export
+    </Button>
+  );
+
   return (
-    <div className="flex min-h-screen bg-background" data-testid="trends-page">
-      <Sidebar />
-
-      <main className="flex-1 ml-64">
-        {/* Header */}
-        <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-xl" data-testid="trends-header">
-          <div className="flex items-center justify-between px-8 py-6">
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight" data-testid="trends-title">Trends Explorer</h1>
-              <p className="text-muted-foreground mt-1">
-                Browse and filter all tracked products
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <Button variant="outline" data-testid="export-button">
-                <span className="mr-2">📤</span>
-                Export
-              </Button>
-            </div>
-          </div>
-        </header>
-
-        <div className="p-8 space-y-6">
+    <Layout
+      title="Trends Explorer"
+      subtitle="Browse and filter all tracked products"
+      headerActions={headerActions}
+      testId="trends-page"
+    >
+      <div className="space-y-4 sm:space-y-6" data-testid="trends-header">
           {/* Filters */}
           <Card data-testid="trends-filters">
-            <CardContent className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <CardContent className="p-4 sm:p-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                 {/* Search */}
-                <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-2">
+                <div className="sm:col-span-2 lg:col-span-1">
+                  <label className="block text-xs sm:text-sm font-medium text-muted-foreground mb-1.5 sm:mb-2">
                     Search
                   </label>
                   <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
                       🔍
                     </span>
                     <input
@@ -89,14 +80,14 @@ export default function TrendsExplorer() {
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
                       data-testid="search-input"
-                      className="w-full pl-10 pr-4 py-2.5 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
+                      className="w-full pl-9 sm:pl-10 pr-3 sm:pr-4 py-2 sm:py-2.5 text-sm bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary transition-colors"
                     />
                   </div>
                 </div>
 
                 {/* Category Filter */}
                 <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-2">
+                  <label className="block text-xs sm:text-sm font-medium text-muted-foreground mb-1.5 sm:mb-2">
                     Category
                   </label>
                   <select
@@ -106,7 +97,7 @@ export default function TrendsExplorer() {
                       setPage(1);
                     }}
                     data-testid="category-filter"
-                    className="w-full px-4 py-2.5 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary transition-colors cursor-pointer"
+                    className="w-full px-3 sm:px-4 py-2 sm:py-2.5 text-sm bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary transition-colors cursor-pointer"
                   >
                     <option value="all">All Categories</option>
                     <option value="spirits">🥃 Spirits</option>
@@ -118,7 +109,7 @@ export default function TrendsExplorer() {
 
                 {/* Tier Filter */}
                 <div>
-                  <label className="block text-sm font-medium text-muted-foreground mb-2">
+                  <label className="block text-xs sm:text-sm font-medium text-muted-foreground mb-1.5 sm:mb-2">
                     Trend Tier
                   </label>
                   <select
@@ -128,7 +119,7 @@ export default function TrendsExplorer() {
                       setPage(1);
                     }}
                     data-testid="tier-filter"
-                    className="w-full px-4 py-2.5 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary transition-colors cursor-pointer"
+                    className="w-full px-3 sm:px-4 py-2 sm:py-2.5 text-sm bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary transition-colors cursor-pointer"
                   >
                     <option value="all">All Tiers</option>
                     <option value="viral">🔥 Viral (90+)</option>
@@ -140,10 +131,10 @@ export default function TrendsExplorer() {
                 </div>
 
                 {/* Results count */}
-                <div className="flex items-end">
-                  <div className="p-3 rounded-lg bg-primary/10 border border-primary/20" data-testid="results-count">
-                    <p className="text-sm text-muted-foreground">
-                      <span className="text-2xl font-bold text-primary mr-2">
+                <div className="flex items-end sm:col-span-2 lg:col-span-1">
+                  <div className="w-full p-2.5 sm:p-3 rounded-lg bg-primary/10 border border-primary/20" data-testid="results-count">
+                    <p className="text-xs sm:text-sm text-muted-foreground">
+                      <span className="text-xl sm:text-2xl font-bold text-primary mr-1.5 sm:mr-2">
                         {data?.meta?.total || data?.items?.length || 0}
                       </span>
                       products found
@@ -279,9 +270,9 @@ export default function TrendsExplorer() {
 
                 {/* Pagination */}
                 {(data?.meta?.total || 0) > pageSize && (
-                  <div className="border-t border-border px-6 py-4" data-testid="trends-pagination">
-                    <div className="flex items-center justify-between">
-                      <div className="text-sm text-muted-foreground">
+                  <div className="border-t border-border px-4 sm:px-6 py-3 sm:py-4" data-testid="trends-pagination">
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                      <div className="text-xs sm:text-sm text-muted-foreground text-center sm:text-left">
                         Showing{' '}
                         <span className="font-medium text-foreground">
                           {(page - 1) * pageSize + 1}
@@ -302,7 +293,8 @@ export default function TrendsExplorer() {
                           disabled={page === 1}
                           data-testid="pagination-prev"
                         >
-                          ← Previous
+                          <span className="sm:hidden">←</span>
+                          <span className="hidden sm:inline">← Previous</span>
                         </Button>
                         <Button
                           variant="outline"
@@ -311,7 +303,8 @@ export default function TrendsExplorer() {
                           disabled={page * pageSize >= (data?.meta?.total || 0)}
                           data-testid="pagination-next"
                         >
-                          Next →
+                          <span className="hidden sm:inline">Next →</span>
+                          <span className="sm:hidden">→</span>
                         </Button>
                       </div>
                     </div>
@@ -321,7 +314,6 @@ export default function TrendsExplorer() {
             )}
           </Card>
         </div>
-      </main>
-    </div>
+    </Layout>
   );
 }

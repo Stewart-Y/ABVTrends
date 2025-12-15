@@ -2,17 +2,23 @@
 ABVTrends API - Scheduler Endpoints
 
 Monitor and control the automatic scraper scheduler.
+Requires admin authentication for all endpoints.
 """
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from app.api.deps import require_admin
+from app.models.user import User
 from app.services.scraper_scheduler import get_scheduler
 
 router = APIRouter(prefix="/scheduler", tags=["scheduler"])
 
 
 @router.get("/status")
-async def get_scheduler_status(request: Request):
+async def get_scheduler_status(
+    request: Request,
+    admin: User = Depends(require_admin),
+):
     """
     Get the current status of the scraper scheduler.
 
@@ -32,7 +38,10 @@ async def get_scheduler_status(request: Request):
 
 
 @router.post("/start")
-async def start_scheduler_endpoint(request: Request):
+async def start_scheduler_endpoint(
+    request: Request,
+    admin: User = Depends(require_admin),
+):
     """
     Manually start the scraper scheduler.
 
@@ -62,7 +71,10 @@ async def start_scheduler_endpoint(request: Request):
 
 
 @router.post("/stop")
-async def stop_scheduler_endpoint(request: Request):
+async def stop_scheduler_endpoint(
+    request: Request,
+    admin: User = Depends(require_admin),
+):
     """
     Manually stop the scraper scheduler.
 
@@ -90,7 +102,10 @@ async def stop_scheduler_endpoint(request: Request):
 
 
 @router.get("/next-runs")
-async def get_next_run_times(request: Request):
+async def get_next_run_times(
+    request: Request,
+    admin: User = Depends(require_admin),
+):
     """
     Get the next scheduled run times for all jobs.
 

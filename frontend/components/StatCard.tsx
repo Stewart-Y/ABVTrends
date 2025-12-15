@@ -14,19 +14,19 @@ export function StatCard({ title, value, change, iconPath, trend = 'neutral', de
   return (
     <Card
       className={cn(
-        'stat-card animate-fade-in group',
+        'stat-card animate-fade-in group p-3 sm:p-4 lg:p-6',
         `animation-delay-${delay}`
       )}
     >
-      <div className="flex items-start justify-between">
-        <div className="flex-1">
-          <p className="text-sm font-medium text-muted-foreground mb-2">{title}</p>
-          <div className="flex items-baseline gap-2">
-            <h3 className="text-3xl font-bold tracking-tight">{value}</h3>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <p className="text-xs sm:text-sm font-medium text-muted-foreground mb-1 sm:mb-2 truncate">{title}</p>
+          <div className="flex items-baseline gap-1 sm:gap-2 flex-wrap">
+            <h3 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight">{value}</h3>
             {change !== undefined && (
               <span
                 className={cn(
-                  'text-sm font-semibold flex items-center gap-1',
+                  'text-xs sm:text-sm font-semibold flex items-center gap-0.5',
                   trend === 'up' && 'text-green-400',
                   trend === 'down' && 'text-red-400',
                   trend === 'neutral' && 'text-muted-foreground'
@@ -39,8 +39,8 @@ export function StatCard({ title, value, change, iconPath, trend = 'neutral', de
             )}
           </div>
         </div>
-        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 transition-colors group-hover:bg-primary/20">
-          <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+        <div className="flex h-8 w-8 sm:h-10 sm:w-10 lg:h-12 lg:w-12 items-center justify-center rounded-lg bg-primary/10 transition-colors group-hover:bg-primary/20 flex-shrink-0">
+          <svg className="w-4 h-4 sm:w-5 sm:h-5 lg:w-6 lg:h-6" fill="currentColor" viewBox="0 0 24 24">
             <path d={iconPath} />
           </svg>
         </div>

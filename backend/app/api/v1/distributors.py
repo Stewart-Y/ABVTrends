@@ -2,6 +2,7 @@
 ABVTrends - Distributors API Endpoints
 
 REST API for distributor management and scraper control.
+Scrape trigger endpoints require admin authentication.
 """
 
 import asyncio
@@ -15,8 +16,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import require_admin
 from app.core.database import get_db
 from app.models.distributor import Distributor, ScrapeRun, ScrapeError
+from app.models.user import User
 from app.scrapers.distributors import (
     DISTRIBUTOR_SCRAPERS,
     SessionManager,
@@ -198,6 +201,7 @@ async def trigger_scrape(
         None, ge=1, le=10000, description="Max products to scrape"
     ),
     db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
 ):
     """
     Trigger a scrape for a distributor.
