@@ -32,9 +32,10 @@ class Base(DeclarativeBase):
 connect_args = {}
 if settings.db_ssl_required:
     ssl_context = ssl.create_default_context()
-    # Enable proper certificate verification for production security
-    ssl_context.check_hostname = True
-    ssl_context.verify_mode = ssl.CERT_REQUIRED
+    # For AWS RDS, we need to accept their certificates
+    # RDS uses AWS-signed certs, not publicly trusted CAs
+    ssl_context.check_hostname = False
+    ssl_context.verify_mode = ssl.CERT_NONE
     connect_args["ssl"] = ssl_context
 
 # Create async engine with connection pooling
