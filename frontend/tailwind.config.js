@@ -25,7 +25,7 @@ module.exports = {
           foreground: 'hsl(var(--popover-foreground))',
         },
 
-        // Primary brand color (amber/gold for alcohol theme)
+        // Primary brand color (modern blue)
         primary: {
           DEFAULT: 'hsl(var(--primary))',
           foreground: 'hsl(var(--primary-foreground))',
@@ -110,8 +110,8 @@ module.exports = {
           '100%': { transform: 'translateX(100%)' },
         },
         glow: {
-          '0%, 100%': { boxShadow: '0 0 20px rgba(245, 158, 11, 0.3)' },
-          '50%': { boxShadow: '0 0 40px rgba(245, 158, 11, 0.6)' },
+          '0%, 100%': { boxShadow: '0 0 20px rgba(59, 130, 246, 0.3)' },
+          '50%': { boxShadow: '0 0 40px rgba(59, 130, 246, 0.5)' },
         },
       },
       animation: {
@@ -128,9 +128,9 @@ module.exports = {
         'glass-gradient': 'linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%)',
       },
       boxShadow: {
-        'glow-sm': '0 0 10px rgba(245, 158, 11, 0.2)',
-        'glow-md': '0 0 20px rgba(245, 158, 11, 0.3)',
-        'glow-lg': '0 0 30px rgba(245, 158, 11, 0.4)',
+        'glow-sm': '0 0 10px rgba(59, 130, 246, 0.15)',
+        'glow-md': '0 0 20px rgba(59, 130, 246, 0.25)',
+        'glow-lg': '0 0 30px rgba(59, 130, 246, 0.35)',
       },
     },
   },
