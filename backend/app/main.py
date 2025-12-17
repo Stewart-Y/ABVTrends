@@ -2,6 +2,7 @@
 ABVTrends - FastAPI Application
 
 Main entry point for the ABVTrends API server.
+Includes JWT authentication and role-based access control.
 """
 
 import logging
