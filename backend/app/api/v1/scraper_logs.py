@@ -217,3 +217,79 @@ async def stream_logs():
             "X-Accel-Buffering": "no",  # Disable nginx buffering
         },
     )
+
+
+# =============================================================================
+# Per-Distributor Logs (Stealth Scraping)
+# =============================================================================
+
+@router.get("/distributor/{slug}/logs")
+async def get_distributor_logs(slug: str, lines: int = 100):
+    """
+    Get recent logs for a specific distributor.
+
+    Each distributor has its own log file tracking:
+    - Authentication success/failure
+    - Products scraped per session
+    - Rate limiting events
+    - Errors and exceptions
+
+    Args:
+        slug: Distributor identifier (e.g., 'libdib', 'provi', 'sgws')
+        lines: Number of recent log lines to return (default: 100)
+    """
+    from app.services.scraper_logger import get_recent_logs, LOG_DIR
+
+    logs = get_recent_logs(slug, lines)
+
+    return {
+        "distributor": slug,
+        "log_file": str(LOG_DIR / f"{slug}.log"),
+        "lines_returned": len(logs),
+        "logs": [line.strip() for line in logs],
+    }
+
+
+@router.get("/distributor/errors")
+async def get_all_distributor_errors():
+    """
+    Get error summary across all distributors.
+
+    Returns error counts and recent error messages for each
+    distributor to help identify problematic scrapers.
+    """
+    from app.services.scraper_logger import get_error_summary
+
+    summary = get_error_summary()
+
+    # Calculate totals
+    total_errors = sum(s["error_count"] for s in summary.values())
+
+    return {
+        "total_errors": total_errors,
+        "distributors": summary,
+    }
+
+
+@router.get("/distributor/stats")
+async def get_distributor_scraping_stats():
+    """
+    Get current daily scraping statistics for all distributors.
+
+    Shows items scraped, daily limits, remaining budget,
+    and session counts for each distributor.
+    """
+    from app.services.stealth_scraper import get_scraper_stats
+
+    stats = await get_scraper_stats()
+
+    # Calculate totals
+    total_scraped = sum(s["items_scraped"] for s in stats.values())
+    total_limit = sum(s["daily_limit"] for s in stats.values())
+
+    return {
+        "total_scraped_today": total_scraped,
+        "total_daily_limit": total_limit,
+        "remaining_budget": total_limit - total_scraped,
+        "distributors": stats,
+    }

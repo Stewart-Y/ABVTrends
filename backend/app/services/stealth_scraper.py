@@ -8,6 +8,7 @@ Features:
 - "Noise" actions (homepage visits, random product clicks, idle pauses)
 - Round-robin scheduling across distributors
 - Business hours only (8 AM - 6 PM PT, weekdays)
+- Per-distributor logging for issue tracking
 """
 
 import asyncio
@@ -23,6 +24,7 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.core.database import get_db_context
 from app.scrapers.distributors import DISTRIBUTOR_SCRAPERS, RawProduct
+from app.services.scraper_logger import ScraperLogContext, get_scraper_logger
 
 logger = logging.getLogger(__name__)
 
@@ -250,99 +252,103 @@ class StealthScraper:
         """
         batch_size = batch_size or self.config.batch_size
 
-        # Check business hours
-        if not self.is_business_hours():
-            logger.info(f"Skipping {distributor_slug}: Outside business hours")
-            return []
-
-        # Get current state
-        state = await self.get_state(distributor_slug)
-
-        # Check daily budget
-        if state.items_scraped >= state.daily_limit:
-            logger.info(
-                f"Skipping {distributor_slug}: Daily limit reached "
-                f"({state.items_scraped}/{state.daily_limit})"
-            )
-            return []
-
-        # Calculate how many items we can scrape
-        remaining_budget = state.daily_limit - state.items_scraped
-        items_to_scrape = min(batch_size, remaining_budget)
-
-        logger.info(
-            f"Starting stealth scrape: {distributor_slug} "
-            f"(batch={items_to_scrape}, offset={state.last_offset}, "
-            f"budget={remaining_budget}/{state.daily_limit})"
-        )
-
-        # Get scraper class and credentials
-        scraper_class = DISTRIBUTOR_SCRAPERS.get(distributor_slug)
-        if not scraper_class:
-            logger.error(f"Unknown distributor: {distributor_slug}")
-            return []
-
-        credentials = self._get_credentials(distributor_slug)
-        if not credentials:
-            logger.error(f"No credentials for: {distributor_slug}")
-            return []
-
-        products: list[RawProduct] = []
-
-        try:
-            scraper = scraper_class(credentials)
-
-            # Authenticate
-            if not await scraper.authenticate():
-                logger.error(f"Authentication failed: {distributor_slug}")
+        # Use per-distributor logging
+        with ScraperLogContext(distributor_slug) as log:
+            # Check business hours
+            if not self.is_business_hours():
+                log.info("Skipping: Outside business hours")
                 return []
 
-            # Maybe start with noise (20% chance)
-            if self.should_do_noise():
-                await self.perform_noise_action(scraper)
-                await self.random_delay()
+            # Get current state
+            state = await self.get_state(distributor_slug)
 
-            # Get categories for rotation
-            categories = await scraper.get_categories()
-            if categories:
-                # Rotate through categories
-                cat_index = state.sessions_today % len(categories)
-                category = categories[cat_index]
-                category_id = category.get("id") or category.get("slug")
-            else:
-                category_id = None
+            # Check daily budget
+            if state.items_scraped >= state.daily_limit:
+                log.budget_status(state.items_scraped, state.daily_limit)
+                log.info("Skipping: Daily limit reached")
+                return []
 
-            # Scrape with stealth delays
-            products = await scraper.get_products(
-                category=category_id,
-                limit=items_to_scrape,
-                offset=state.last_offset,
-            )
+            # Calculate how many items we can scrape
+            remaining_budget = state.daily_limit - state.items_scraped
+            items_to_scrape = min(batch_size, remaining_budget)
 
-            # Random noise actions during scraping
-            if self.should_do_noise() and len(products) > 5:
-                await self.perform_noise_action(scraper)
+            # Start session logging
+            log.start_session(batch_size=items_to_scrape, offset=state.last_offset)
+            log.budget_status(state.items_scraped, state.daily_limit)
 
-            # Update state
-            new_offset = state.last_offset + len(products)
-            new_total = state.items_scraped + len(products)
+            # Get scraper class and credentials
+            scraper_class = DISTRIBUTOR_SCRAPERS.get(distributor_slug)
+            if not scraper_class:
+                log.error(f"Unknown distributor: {distributor_slug}")
+                return []
 
-            await self.update_state(
-                distributor_slug=distributor_slug,
-                items_scraped=new_total,
-                last_offset=new_offset,
-                last_category=category_id,
-            )
+            credentials = self._get_credentials(distributor_slug)
+            if not credentials:
+                log.error("No credentials configured")
+                return []
 
-            logger.info(
-                f"Completed stealth scrape: {distributor_slug} "
-                f"({len(products)} products, total today: {new_total})"
-            )
+            products: list[RawProduct] = []
 
-        except Exception as e:
-            logger.error(f"Stealth scrape failed for {distributor_slug}: {e}")
+            try:
+                scraper = scraper_class(credentials)
 
-        return products
+                # Authenticate
+                log.info("Authenticating...")
+                if not await scraper.authenticate():
+                    log.auth_failed("Authentication returned False")
+                    return []
+                log.auth_success()
+
+                # Maybe start with noise (20% chance)
+                if self.should_do_noise():
+                    log.noise_action("pre-scrape browsing")
+                    await self.perform_noise_action(scraper)
+                    await self.random_delay()
+
+                # Get categories for rotation
+                categories = await scraper.get_categories()
+                if categories:
+                    # Rotate through categories
+                    cat_index = state.sessions_today % len(categories)
+                    category = categories[cat_index]
+                    category_id = category.get("id") or category.get("slug")
+                    log.info(f"Category: {category_id} (session {state.sessions_today + 1})")
+                else:
+                    category_id = None
+                    log.info("No categories - fetching all products")
+
+                # Scrape with stealth delays
+                log.info(f"Fetching up to {items_to_scrape} products from offset {state.last_offset}...")
+                products = await scraper.get_products(
+                    category=category_id,
+                    limit=items_to_scrape,
+                    offset=state.last_offset,
+                )
+
+                log.products_scraped(len(products), category_id)
+
+                # Random noise actions during scraping
+                if self.should_do_noise() and len(products) > 5:
+                    log.noise_action("mid-scrape idle")
+                    await self.perform_noise_action(scraper)
+
+                # Update state
+                new_offset = state.last_offset + len(products)
+                new_total = state.items_scraped + len(products)
+
+                await self.update_state(
+                    distributor_slug=distributor_slug,
+                    items_scraped=new_total,
+                    last_offset=new_offset,
+                    last_category=category_id,
+                )
+
+                log.budget_status(new_total, state.daily_limit)
+
+            except Exception as e:
+                log.error(f"Scrape failed: {str(e)}", exception=e)
+
+            return products
 
     async def scrape_round_robin(
         self,
