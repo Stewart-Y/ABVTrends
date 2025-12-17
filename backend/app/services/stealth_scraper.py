@@ -26,6 +26,7 @@ from app.core.database import get_db_context
 from app.scrapers.distributors import DISTRIBUTOR_SCRAPERS, RawProduct
 from app.services.scraper_logger import ScraperLogContext, get_scraper_logger
 from app.services.discord_notifier import get_discord_notifier
+from app.services.data_pipeline import DataPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -340,6 +341,20 @@ class StealthScraper:
                 )
 
                 log.products_scraped(len(products), category_id)
+
+                # Store products in database via pipeline
+                if products:
+                    async with get_db_context() as db:
+                        pipeline = DataPipeline(db)
+                        pipeline_stats = await pipeline.process_raw_products(
+                            products=products,
+                            distributor_slug=distributor_slug,
+                        )
+                        log.info(
+                            f"Pipeline: {pipeline_stats.products_matched} matched, "
+                            f"{pipeline_stats.products_created} new, "
+                            f"{pipeline_stats.price_records} prices"
+                        )
 
                 # Random noise actions during scraping
                 if self.should_do_noise() and len(products) > 5:
