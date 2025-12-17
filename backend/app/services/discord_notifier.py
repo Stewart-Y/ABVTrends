@@ -203,6 +203,27 @@ class DiscordNotifier:
             color=0x5865F2,  # Blurple
         )
 
+    async def scraper_running(
+        self,
+        distributor: str,
+        batch_size: int,
+        offset: int,
+        budget_used: int,
+        budget_limit: int,
+    ) -> bool:
+        """Send notification when individual scraper starts running."""
+        pct = (budget_used / budget_limit * 100) if budget_limit > 0 else 0
+        return await self.send(
+            title="🔄 Scraper Running",
+            description=f"**{distributor.upper()}** is now scraping",
+            color=0x5865F2,  # Blurple
+            fields=[
+                {"name": "Batch Size", "value": str(batch_size), "inline": True},
+                {"name": "Offset", "value": str(offset), "inline": True},
+                {"name": "Daily Budget", "value": f"{budget_used}/{budget_limit} ({pct:.0f}%)", "inline": True},
+            ],
+        )
+
 
 # Singleton instance
 _notifier: Optional[DiscordNotifier] = None

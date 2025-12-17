@@ -303,6 +303,16 @@ class StealthScraper:
                     return []
                 log.auth_success()
 
+                # Discord notification - scraper is now running
+                discord = get_discord_notifier()
+                await discord.scraper_running(
+                    distributor=distributor_slug,
+                    batch_size=items_to_scrape,
+                    offset=state.last_offset,
+                    budget_used=state.items_scraped,
+                    budget_limit=state.daily_limit,
+                )
+
                 # Maybe start with noise (20% chance)
                 if self.should_do_noise():
                     log.noise_action("pre-scrape browsing")
