@@ -11,6 +11,7 @@ from app.scrapers.distributors.sgws import SGWSScraper
 from app.scrapers.distributors.sipmarket import SipMarketScraper
 from app.scrapers.distributors.parkstreet import ParkStreetScraper
 from app.scrapers.distributors.breakthru import BreakthruScraper
+from app.scrapers.distributors.provi import ProviScraper
 from app.scrapers.distributors.session_manager import SessionManager
 
 # Registry of available distributor scrapers
@@ -21,8 +22,7 @@ DISTRIBUTOR_SCRAPERS: dict[str, type[BaseDistributorScraper]] = {
     "sipmarket": SipMarketScraper,
     "parkstreet": ParkStreetScraper,
     "breakthru": BreakthruScraper,
-    # Add more scrapers here as they're implemented:
-    # "provi": ProviScraper,
+    "provi": ProviScraper,
 }
 
 __all__ = [
@@ -39,6 +39,7 @@ __all__ = [
     "SipMarketScraper",
     "ParkStreetScraper",
     "BreakthruScraper",
+    "ProviScraper",
     # Registry
     "DISTRIBUTOR_SCRAPERS",
 ]

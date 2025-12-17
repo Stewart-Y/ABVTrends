@@ -107,6 +107,10 @@ class Settings(BaseSettings):
     breakthru_email: Optional[str] = None
     breakthru_password: Optional[str] = None
 
+    # Distributor Credentials - Provi
+    provi_email: Optional[str] = None
+    provi_password: Optional[str] = None
+
     # Alerting & Notifications
     slack_webhook_url: Optional[str] = None
     alert_email_to: Optional[str] = None
