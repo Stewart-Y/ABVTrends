@@ -113,6 +113,7 @@ class Settings(BaseSettings):
 
     # Alerting & Notifications
     slack_webhook_url: Optional[str] = None
+    discord_webhook_url: Optional[str] = None  # Discord alerts for scraper events
     alert_email_to: Optional[str] = None
     alert_email_from: Optional[str] = None
     sendgrid_api_key: Optional[str] = None

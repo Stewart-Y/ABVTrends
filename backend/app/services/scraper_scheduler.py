@@ -19,6 +19,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from app.core.config import settings
 from app.services.scraper_orchestrator import ScraperOrchestrator
 from app.services.stealth_scraper import run_stealth_session, get_scraper_stats
+from app.services.discord_notifier import get_discord_notifier
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +108,21 @@ class ScraperScheduler:
                 replace_existing=True,
             )
 
+        # Daily summary at end of business hours (6 PM PT)
+        self.scheduler.add_job(
+            self._send_daily_summary,
+            trigger=CronTrigger(
+                hour=18,
+                minute=0,
+                timezone=PT,
+                day_of_week="mon-fri",
+            ),
+            id="daily_summary",
+            name="Daily Scraping Summary (6 PM PT)",
+            max_instances=1,
+            replace_existing=True,
+        )
+
         self.scheduler.start()
         self.is_running = True
         logger.info("Scraper scheduler started")
@@ -114,6 +130,7 @@ class ScraperScheduler:
         logger.info("  - Tier 2 (Retailers): Every 4 hours at :15")
         logger.info("  - Full scrape: Daily at 2:00 AM")
         logger.info("  - Stealth Distributors: 6 sessions/day, weekdays 8AM-6PM PT")
+        logger.info("  - Daily Summary: 6 PM PT weekdays (Discord notification)")
 
     def stop(self):
         """Stop the scheduler."""
@@ -260,6 +277,31 @@ class ScraperScheduler:
 
         except Exception as e:
             logger.error(f"✗ Stealth scrape failed: {e}", exc_info=True)
+            # Discord notification for failure
+            discord = get_discord_notifier()
+            await discord.scraper_error("stealth_session", str(e))
+
+    async def _send_daily_summary(self):
+        """
+        Send daily scraping summary to Discord.
+
+        Called at end of business hours to summarize all scraping activity.
+        """
+        logger.info("=== Sending Daily Summary ===")
+
+        try:
+            # Get stats for all distributors
+            stats = await get_scraper_stats()
+
+            # Send Discord notification
+            discord = get_discord_notifier()
+            await discord.daily_summary(stats)
+
+            total_today = sum(s["items_scraped"] for s in stats.values())
+            logger.info(f"Daily summary sent: {total_today} items across {len(stats)} distributors")
+
+        except Exception as e:
+            logger.error(f"Failed to send daily summary: {e}", exc_info=True)
 
     def get_next_run_times(self) -> dict:
         """Get next scheduled run times for each job."""

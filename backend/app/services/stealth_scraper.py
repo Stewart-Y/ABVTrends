@@ -25,6 +25,7 @@ from app.core.config import settings
 from app.core.database import get_db_context
 from app.scrapers.distributors import DISTRIBUTOR_SCRAPERS, RawProduct
 from app.services.scraper_logger import ScraperLogContext, get_scraper_logger
+from app.services.discord_notifier import get_discord_notifier
 
 logger = logging.getLogger(__name__)
 
@@ -296,6 +297,9 @@ class StealthScraper:
                 log.info("Authenticating...")
                 if not await scraper.authenticate():
                     log.auth_failed("Authentication returned False")
+                    # Discord notification for auth failure
+                    discord = get_discord_notifier()
+                    await discord.auth_failed(distributor_slug, "Authentication returned False")
                     return []
                 log.auth_success()
 
@@ -345,8 +349,28 @@ class StealthScraper:
 
                 log.budget_status(new_total, state.daily_limit)
 
+                # Discord notification for session complete
+                discord = get_discord_notifier()
+                await discord.session_complete(
+                    distributor=distributor_slug,
+                    products=len(products),
+                    total_today=new_total,
+                    daily_limit=state.daily_limit,
+                )
+
+                # Check if budget exhausted
+                if new_total >= state.daily_limit:
+                    await discord.budget_exhausted(distributor_slug)
+
             except Exception as e:
                 log.error(f"Scrape failed: {str(e)}", exception=e)
+                # Discord notification for error
+                discord = get_discord_notifier()
+                await discord.scraper_error(
+                    distributor=distributor_slug,
+                    error=str(e),
+                    context={"offset": state.last_offset, "category": state.last_category},
+                )
 
             return products
 
