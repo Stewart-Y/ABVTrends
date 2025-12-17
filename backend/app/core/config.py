@@ -142,6 +142,17 @@ class Settings(BaseSettings):
     # Max jitter in minutes within window
     scraper_max_jitter_minutes: int = 60
 
+    # Stealth Scraper Settings (human-like behavior)
+    scraper_daily_limit_per_source: int = 150  # items/day per distributor
+    scraper_batch_size: int = 20  # items per session
+    scraper_min_delay_seconds: float = 3.0  # min delay between requests
+    scraper_max_delay_seconds: float = 8.0  # max delay between requests
+    scraper_sessions_per_day: int = 6  # scraping windows per day
+    scraper_noise_ratio: float = 0.15  # 15% of actions are non-productive browsing
+    scraper_business_hours_start: int = 8  # 8 AM PT
+    scraper_business_hours_end: int = 18  # 6 PM PT
+    scraper_skip_weekends: bool = True  # avoid scraping on weekends
+
     @property
     def async_database_url(self) -> str:
         """Convert sync database URL to async format for SQLAlchemy async engine."""

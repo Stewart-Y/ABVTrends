@@ -528,6 +528,55 @@ def scrape_distributor(self, slug: str, categories: Optional[list[str]] = None):
 
 
 @celery_app.task
+def run_stealth_scrape(distributors: Optional[list[str]] = None, batch_size: Optional[int] = None):
+    """
+    Run stealth distributor scraping session.
+
+    Scrapes distributors with human-like behavior:
+    - Random delays between requests (3-8 seconds)
+    - Noise actions (homepage visits, idle pauses)
+    - Daily budget tracking (100-200 items/day per distributor)
+    - Business hours only (8 AM - 6 PM PT, weekdays)
+
+    Args:
+        distributors: List of distributor slugs to scrape (default: 2 random)
+        batch_size: Items per distributor (default: 20)
+    """
+    logger.info(f"Starting stealth scrape: {distributors or 'random'}")
+
+    async def _run():
+        from app.services.stealth_scraper import run_stealth_session, get_scraper_stats
+
+        results = await run_stealth_session(distributors, batch_size)
+
+        # Calculate totals
+        total_products = sum(len(products) for products in results.values())
+        stats = await get_scraper_stats()
+        total_today = sum(s["items_scraped"] for s in stats.values())
+
+        return {
+            "results": {k: len(v) for k, v in results.items()},
+            "total_products": total_products,
+            "daily_total": total_today,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+    return run_async(_run())
+
+
+@celery_app.task
+def get_stealth_stats():
+    """Get current stealth scraping statistics for all distributors."""
+    logger.info("Getting stealth scraper stats...")
+
+    async def _run():
+        from app.services.stealth_scraper import get_scraper_stats
+        return await get_scraper_stats()
+
+    return run_async(_run())
+
+
+@celery_app.task
 def calculate_enhanced_trends():
     """
     Calculate enhanced trend scores using distributor data.

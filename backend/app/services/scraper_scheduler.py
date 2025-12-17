@@ -2,19 +2,28 @@
 ABVTrends - Scraper Scheduler
 
 Automatically runs scrapers on a schedule (hourly, daily, etc.)
+Includes stealth distributor scraping with human-like behavior.
 """
 
 import asyncio
 import logging
+import random
 from datetime import datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
+from app.core.config import settings
 from app.services.scraper_orchestrator import ScraperOrchestrator
+from app.services.stealth_scraper import run_stealth_session, get_scraper_stats
 
 logger = logging.getLogger(__name__)
+
+# Pacific timezone for business hours
+PT = ZoneInfo("America/Los_Angeles")
 
 
 class ScraperScheduler:
@@ -70,12 +79,41 @@ class ScraperScheduler:
             replace_existing=True,
         )
 
+        # Stealth distributor scraping - 6 sessions per day during business hours (PT)
+        # Schedule: 8:15, 10:30, 12:45, 14:00, 16:15, 17:30 PT
+        stealth_schedule = [
+            (8, 15),   # 8:15 AM PT
+            (10, 30),  # 10:30 AM PT
+            (12, 45),  # 12:45 PM PT
+            (14, 0),   # 2:00 PM PT
+            (16, 15),  # 4:15 PM PT
+            (17, 30),  # 5:30 PM PT
+        ]
+
+        for i, (hour, minute) in enumerate(stealth_schedule):
+            # Convert PT to UTC (PT is UTC-8 in winter, UTC-7 in summer)
+            # For simplicity, use PT timezone directly
+            self.scheduler.add_job(
+                self._run_stealth_distributor_scrape,
+                trigger=CronTrigger(
+                    hour=hour,
+                    minute=minute,
+                    timezone=PT,
+                    day_of_week="mon-fri",  # Weekdays only
+                ),
+                id=f"stealth_session_{i+1}",
+                name=f"Stealth Distributor Session {i+1} ({hour}:{minute:02d} PT)",
+                max_instances=1,
+                replace_existing=True,
+            )
+
         self.scheduler.start()
         self.is_running = True
         logger.info("Scraper scheduler started")
         logger.info("  - Tier 1 (Media): Every hour at :00")
         logger.info("  - Tier 2 (Retailers): Every 4 hours at :15")
         logger.info("  - Full scrape: Daily at 2:00 AM")
+        logger.info("  - Stealth Distributors: 6 sessions/day, weekdays 8AM-6PM PT")
 
     def stop(self):
         """Stop the scheduler."""
@@ -176,6 +214,52 @@ class ScraperScheduler:
 
         except Exception as e:
             logger.error(f"✗ Full scrape failed: {e}", exc_info=True)
+
+    async def _run_stealth_distributor_scrape(self):
+        """
+        Run stealth distributor scraping session.
+
+        Picks 2 random distributors and scrapes them with human-like behavior:
+        - Random delays between requests
+        - Noise actions (homepage visits, idle pauses)
+        - Daily budget tracking
+        """
+        # Add random jitter (0-15 minutes) to avoid predictable timing
+        jitter = random.randint(0, 15 * 60)  # 0-15 minutes in seconds
+        if jitter > 0:
+            logger.info(f"Stealth session: waiting {jitter}s jitter...")
+            await asyncio.sleep(jitter)
+
+        logger.info("=== Stealth Distributor Scrape Starting ===")
+        start_time = datetime.utcnow()
+
+        try:
+            # Run stealth session (picks 2 random distributors by default)
+            results = await run_stealth_session()
+
+            # Calculate totals
+            total_products = sum(len(products) for products in results.values())
+            distributors_scraped = [k for k, v in results.items() if v]
+
+            duration = (datetime.utcnow() - start_time).total_seconds()
+            logger.info(
+                f"✓ Stealth scrape complete: {total_products} products "
+                f"from {len(distributors_scraped)} distributors in {duration:.0f}s"
+            )
+
+            for dist, products in results.items():
+                if products:
+                    logger.info(f"  - {dist}: {len(products)} products")
+
+            # Log daily stats
+            stats = await get_scraper_stats()
+            total_today = sum(s["items_scraped"] for s in stats.values())
+            logger.info(f"Daily total across all distributors: {total_today} items")
+
+            self.last_run = start_time
+
+        except Exception as e:
+            logger.error(f"✗ Stealth scrape failed: {e}", exc_info=True)
 
     def get_next_run_times(self) -> dict:
         """Get next scheduled run times for each job."""
