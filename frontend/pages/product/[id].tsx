@@ -289,11 +289,11 @@ export default function ProductDetail() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <Button variant="outline" data-testid="export-button">
+              <Button variant="outline" disabled className="opacity-50 cursor-not-allowed" data-testid="export-button" title="Export coming soon">
                 <span className="mr-2">📤</span>
                 Export
               </Button>
-              <Button variant="outline" data-testid="set-alert-button">
+              <Button variant="outline" disabled className="opacity-50 cursor-not-allowed" data-testid="set-alert-button" title="Alerts coming soon">
                 <span className="mr-2">🔔</span>
                 Set Alert
               </Button>

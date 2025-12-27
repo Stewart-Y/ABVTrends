@@ -539,3 +539,184 @@ async def get_scraper_stats() -> dict[str, dict[str, Any]]:
     """Get current scraping statistics."""
     scraper = StealthScraper()
     return await scraper.get_daily_stats()
+
+
+async def run_test_scrape(
+    items_per_distributor: int = 10,
+    distributors: Optional[list[str]] = None,
+) -> dict[str, Any]:
+    """
+    Run a test scrape for all distributors with Discord notifications.
+
+    This bypasses business hours checks and stealth delays for quick testing.
+    Sends notifications:
+    - When test starts (all scrapers)
+    - When each scraper fails (individual errors)
+    - Final summary with results per distributor
+
+    Args:
+        items_per_distributor: Number of items to scrape per distributor (default: 10)
+        distributors: List of distributor slugs (default: all 7)
+
+    Returns:
+        Dict with results per distributor and summary
+    """
+    discord = get_discord_notifier()
+    distributors = distributors or DISTRIBUTOR_SLUGS
+
+    logger.info(f"=== TEST SCRAPE STARTING ===")
+    logger.info(f"Distributors: {distributors}")
+    logger.info(f"Items per distributor: {items_per_distributor}")
+
+    # 1. Send START notification
+    await discord.send(
+        title="🧪 Test Scrape Started",
+        description=f"Running test scrape for **{len(distributors)}** distributors",
+        color=0x5865F2,  # Blurple
+        fields=[
+            {"name": "Distributors", "value": ", ".join(d.upper() for d in distributors), "inline": False},
+            {"name": "Items Each", "value": str(items_per_distributor), "inline": True},
+            {"name": "Total Target", "value": str(len(distributors) * items_per_distributor), "inline": True},
+        ],
+        footer="ABVTrends Test Run",
+    )
+
+    # Create a test config that bypasses business hours
+    test_config = StealthConfig(
+        daily_limit=items_per_distributor,
+        batch_size=items_per_distributor,
+        min_delay=1.0,  # Faster delays for testing
+        max_delay=2.0,
+        noise_ratio=0.0,  # No noise for testing
+        business_hours_start=0,  # Always in business hours
+        business_hours_end=24,
+        skip_weekends=False,  # Don't skip weekends
+    )
+
+    scraper = StealthScraper(config=test_config)
+
+    # 2. Run each scraper and collect results
+    results: dict[str, dict[str, Any]] = {}
+    total_scraped = 0
+    total_errors = 0
+    start_time = datetime.utcnow()
+
+    for slug in distributors:
+        logger.info(f"\n--- Testing {slug.upper()} ---")
+
+        try:
+            # Get scraper class and credentials
+            scraper_class = DISTRIBUTOR_SCRAPERS.get(slug)
+            if not scraper_class:
+                error_msg = f"Unknown distributor: {slug}"
+                logger.error(error_msg)
+                results[slug] = {"success": False, "error": error_msg, "products": 0}
+                total_errors += 1
+                await discord.scraper_error(slug, error_msg)
+                continue
+
+            credentials = scraper._get_credentials(slug)
+            if not credentials:
+                error_msg = "No credentials configured"
+                logger.error(f"{slug}: {error_msg}")
+                results[slug] = {"success": False, "error": error_msg, "products": 0}
+                total_errors += 1
+                await discord.scraper_error(slug, error_msg)
+                continue
+
+            # Create scraper instance
+            scraper_instance = scraper_class(credentials)
+
+            # Authenticate
+            logger.info(f"{slug}: Authenticating...")
+            if not await scraper_instance.authenticate():
+                error_msg = "Authentication failed"
+                logger.error(f"{slug}: {error_msg}")
+                results[slug] = {"success": False, "error": error_msg, "products": 0}
+                total_errors += 1
+                await discord.auth_failed(slug, "Authentication returned False")
+                continue
+
+            logger.info(f"{slug}: ✓ Authenticated")
+
+            # Scrape products
+            logger.info(f"{slug}: Fetching up to {items_per_distributor} products...")
+            products = await scraper_instance.get_products(limit=items_per_distributor)
+
+            product_count = len(products) if products else 0
+            logger.info(f"{slug}: ✓ Scraped {product_count} products")
+
+            # Store products in database via pipeline
+            if products:
+                async with get_db_context() as db:
+                    pipeline = DataPipeline(db)
+                    pipeline_stats = await pipeline.process_raw_products(
+                        products=products,
+                        distributor_slug=slug,
+                    )
+                    logger.info(
+                        f"{slug}: Pipeline - {pipeline_stats.products_matched} matched, "
+                        f"{pipeline_stats.products_created} new"
+                    )
+
+            results[slug] = {
+                "success": True,
+                "products": product_count,
+                "error": None,
+            }
+            total_scraped += product_count
+
+        except Exception as e:
+            error_msg = str(e)
+            logger.exception(f"{slug}: Scrape failed - {error_msg}")
+            results[slug] = {"success": False, "error": error_msg, "products": 0}
+            total_errors += 1
+
+            # 3. Send FAILURE notification for this scraper
+            await discord.scraper_error(
+                distributor=slug,
+                error=error_msg,
+                context={"test_run": True},
+            )
+
+        # Small delay between distributors
+        if slug != distributors[-1]:
+            await asyncio.sleep(2)
+
+    # Calculate duration
+    duration = (datetime.utcnow() - start_time).total_seconds()
+
+    # 4. Send SUMMARY notification
+    breakdown_lines = []
+    for slug, data in results.items():
+        if data["success"]:
+            breakdown_lines.append(f"✅ **{slug.upper()}**: {data['products']} products")
+        else:
+            breakdown_lines.append(f"❌ **{slug.upper()}**: Failed - {data['error'][:50]}")
+
+    success_count = sum(1 for r in results.values() if r["success"])
+    color = 0x57F287 if total_errors == 0 else (0xFEE75C if success_count > 0 else 0xED4245)
+
+    await discord.send(
+        title="🧪 Test Scrape Complete",
+        description="\n".join(breakdown_lines),
+        color=color,
+        fields=[
+            {"name": "Total Products", "value": str(total_scraped), "inline": True},
+            {"name": "Successful", "value": f"{success_count}/{len(distributors)}", "inline": True},
+            {"name": "Duration", "value": f"{duration:.0f}s", "inline": True},
+        ],
+        footer=f"ABVTrends Test Run • {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}",
+    )
+
+    logger.info(f"\n=== TEST SCRAPE COMPLETE ===")
+    logger.info(f"Total: {total_scraped} products from {success_count}/{len(distributors)} distributors")
+    logger.info(f"Duration: {duration:.0f}s")
+
+    return {
+        "results": results,
+        "total_scraped": total_scraped,
+        "successful_count": success_count,
+        "error_count": total_errors,
+        "duration_seconds": duration,
+    }

@@ -21,6 +21,7 @@ from typing import Any, Optional
 from urllib.parse import quote, urlencode
 
 from app.scrapers.distributors.base import BaseDistributorScraper, RawProduct
+from app.scrapers.utils.stealth_context import StealthContextFactory
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,18 @@ class SGWSScraper(BaseDistributorScraper):
         Returns:
             True if authentication successful
         """
+        # Try to load saved cookies from manual capture first
+        if not self.session_cookies:
+            try:
+                from app.scrapers.utils.cookie_capture import load_saved_cookies, cookies_to_dict
+                saved_cookies = load_saved_cookies("sgws")
+                if saved_cookies:
+                    self.session_cookies = cookies_to_dict(saved_cookies)
+                    self._playwright_cookies = saved_cookies
+                    logger.info(f"Loaded {len(saved_cookies)} saved cookies for SGWS")
+            except Exception as e:
+                logger.debug(f"Could not load saved cookies: {e}")
+
         # Check if we have pre-captured session cookies
         if self.session_cookies:
             for name, value in self.session_cookies.items():
@@ -97,9 +110,25 @@ class SGWSScraper(BaseDistributorScraper):
                     params={"text": "", "f-category": "Spirits"},
                 )
                 if response.status_code == 200:
-                    logger.info("SGWS session validated successfully")
-                    self.authenticated = True
-                    return True
+                    # Check if response contains login indicators (session expired)
+                    response_text = response.text
+                    if "Sign up to view product prices" in response_text or 'href="/login"' in response_text:
+                        logger.warning("SGWS cookies expired - page shows login prompts")
+                        # Clear invalid cookies
+                        try:
+                            from app.scrapers.utils.cookie_capture import COOKIES_DIR
+                            cookie_file = COOKIES_DIR / "sgws_cookies.json"
+                            if cookie_file.exists():
+                                cookie_file.unlink()
+                                logger.info("Deleted expired cookies file")
+                        except Exception:
+                            pass
+                        self.session_cookies = {}
+                        self._playwright_cookies = []
+                    else:
+                        logger.info("SGWS session validated successfully")
+                        self.authenticated = True
+                        return True
                 else:
                     logger.warning(f"SGWS session check failed: {response.status_code}")
             except Exception as e:
@@ -132,6 +161,448 @@ class SGWSScraper(BaseDistributorScraper):
         logger.warning("SGWS authentication failed")
         return False
 
+    async def _handle_age_verification(self, page) -> None:
+        """
+        Handle SGWS age verification popup.
+
+        SGWS shows a modal with:
+        1. A "Select Site" dropdown (must select a site first)
+        2. A "Were you born before [date]?" question with Yes/No buttons
+        """
+        try:
+            await asyncio.sleep(2)  # Wait for modal to fully render
+
+            # Step 0: Handle cookie consent banner first (can block other clicks)
+            try:
+                cookie_btn = page.locator('button:has-text("Accept All")').first
+                if await cookie_btn.count() > 0 and await cookie_btn.is_visible(timeout=2000):
+                    await cookie_btn.click()
+                    logger.info("Clicked 'Accept All' for cookie consent")
+                    await asyncio.sleep(1)
+            except Exception:
+                pass
+
+            # Step 1: Handle "Select Site" dropdown - REQUIRED before Yes button works
+            # Prefer CA - South for California accounts (Santee is in Southern CA)
+            preferred_sites = ["CA - South", "CA-South", "CA South", "California - South", "CA"]
+
+            try:
+                # Try multiple selectors for the site dropdown
+                dropdown_selectors = [
+                    'select.verify-select-input',
+                    'select.form-select-input',
+                    'select[aria-label*="site" i]',
+                    '.verify-select select',
+                    'select',
+                ]
+
+                site_selected = False
+                for dropdown_sel in dropdown_selectors:
+                    try:
+                        site_dropdown = page.locator(dropdown_sel).first
+                        if await site_dropdown.count() > 0 and await site_dropdown.is_visible(timeout=2000):
+                            logger.info(f"Found site dropdown with selector: {dropdown_sel}")
+                            # Get all options
+                            options = await site_dropdown.locator("option").all()
+                            logger.info(f"Dropdown has {len(options)} options")
+
+                            # First pass: look for preferred CA site
+                            for opt in options:
+                                val = await opt.get_attribute("value")
+                                text = (await opt.text_content() or "").strip()
+                                disabled = await opt.get_attribute("disabled")
+
+                                if disabled or not val or not val.strip():
+                                    continue
+
+                                # Check if this is a preferred site
+                                for pref in preferred_sites:
+                                    if pref.lower() in text.lower() or text.lower() in pref.lower():
+                                        await site_dropdown.select_option(value=val)
+                                        logger.info(f"Selected preferred site: {text} (value={val})")
+                                        site_selected = True
+                                        await asyncio.sleep(1)
+                                        break
+                                if site_selected:
+                                    break
+
+                            # Second pass: if no preferred site found, select first valid option
+                            if not site_selected:
+                                for opt in options:
+                                    val = await opt.get_attribute("value")
+                                    text = (await opt.text_content() or "").strip()
+                                    disabled = await opt.get_attribute("disabled")
+                                    if val and val.strip() and not disabled and "select" not in text.lower():
+                                        await site_dropdown.select_option(value=val)
+                                        logger.info(f"Selected fallback site: {text} (value={val})")
+                                        site_selected = True
+                                        await asyncio.sleep(1)
+                                        break
+
+                            if site_selected:
+                                break
+                    except Exception as e:
+                        logger.debug(f"Dropdown selector {dropdown_sel} failed: {e}")
+                        continue
+
+                if not site_selected:
+                    # Try JavaScript as fallback for dropdown - prefer CA - South
+                    try:
+                        selected = await page.evaluate('''
+                            () => {
+                                const select = document.querySelector('select.verify-select-input, select.form-select-input, select');
+                                if (select && select.options.length > 1) {
+                                    // First look for CA - South
+                                    const preferred = ["CA - South", "CA-South", "CA South", "California"];
+                                    for (const pref of preferred) {
+                                        for (let i = 0; i < select.options.length; i++) {
+                                            const optText = select.options[i].text || "";
+                                            if (!select.options[i].disabled && optText.toLowerCase().includes(pref.toLowerCase())) {
+                                                select.selectedIndex = i;
+                                                select.dispatchEvent(new Event('change', { bubbles: true }));
+                                                return select.options[i].text;
+                                            }
+                                        }
+                                    }
+                                    // Fallback to first valid option
+                                    for (let i = 0; i < select.options.length; i++) {
+                                        if (!select.options[i].disabled && select.options[i].value) {
+                                            select.selectedIndex = i;
+                                            select.dispatchEvent(new Event('change', { bubbles: true }));
+                                            return select.options[i].text;
+                                        }
+                                    }
+                                }
+                                return null;
+                            }
+                        ''')
+                        if selected:
+                            logger.info(f"Selected site via JavaScript: {selected}")
+                            await asyncio.sleep(1)
+                    except Exception as e:
+                        logger.debug(f"JavaScript dropdown selection failed: {e}")
+
+            except Exception as e:
+                logger.warning(f"Site dropdown handling failed: {e}")
+
+            # Step 2: Click "Yes" button for age verification
+            yes_button_selectors = [
+                # Exact text match buttons
+                'button:text-is("Yes")',
+                'button:has-text("Yes")',
+                # Look near the age question text
+                'button:near(:text("born before"))',
+                # Generic fallbacks
+                'a:has-text("Yes")',
+                'input[value="Yes"]',
+                '[role="button"]:has-text("Yes")',
+            ]
+
+            for selector in yes_button_selectors:
+                try:
+                    btn = page.locator(selector).first
+                    if await btn.count() > 0 and await btn.is_visible(timeout=2000):
+                        await btn.click()
+                        logger.info(f"Clicked 'Yes' button: {selector}")
+                        await asyncio.sleep(3)  # Wait for page to load after verification
+                        return
+                except Exception as e:
+                    logger.debug(f"Yes button selector {selector} failed: {e}")
+                    continue
+
+            # Fallback: Find all visible buttons and click one that says "Yes"
+            try:
+                all_buttons = page.locator('button:visible')
+                btn_count = await all_buttons.count()
+                logger.info(f"Checking {btn_count} visible buttons for 'Yes'")
+                for i in range(btn_count):
+                    btn = all_buttons.nth(i)
+                    btn_text = await btn.text_content()
+                    logger.debug(f"Button {i}: '{btn_text}'")
+                    if btn_text and "yes" in btn_text.strip().lower():
+                        await btn.click()
+                        logger.info(f"Clicked visible button: '{btn_text}'")
+                        await asyncio.sleep(3)
+                        return
+            except Exception as e:
+                logger.debug(f"Fallback button search failed: {e}")
+
+            # Last resort: Use JavaScript to find and click the Yes button
+            try:
+                clicked = await page.evaluate('''
+                    () => {
+                        // Find all clickable elements
+                        const elements = document.querySelectorAll('button, a, [role="button"], [onclick]');
+                        for (const el of elements) {
+                            const text = el.textContent || el.innerText || '';
+                            if (text.trim().toLowerCase() === 'yes') {
+                                el.click();
+                                return true;
+                            }
+                        }
+                        return false;
+                    }
+                ''')
+                if clicked:
+                    logger.info("Clicked 'Yes' via JavaScript")
+                    await asyncio.sleep(3)
+                    return
+            except Exception as e:
+                logger.debug(f"JavaScript click failed: {e}")
+
+            logger.info("Age verification handling complete (no Yes button found)")
+
+        except Exception as e:
+            logger.debug(f"Age verification handling error (may be expected): {e}")
+
+    async def _handle_recaptcha_checkbox(self, page) -> bool:
+        """
+        Attempt to click the reCAPTCHA "I'm not a robot" checkbox.
+
+        reCAPTCHA v2 checkbox is in an iframe. With stealth mode and good IP
+        reputation, clicking the checkbox may pass without a challenge.
+
+        Returns:
+            True if checkbox was clicked, False otherwise
+        """
+        try:
+            logger.info("Looking for reCAPTCHA checkbox...")
+
+            # reCAPTCHA is in an iframe
+            recaptcha_frame_selectors = [
+                'iframe[src*="recaptcha"]',
+                'iframe[title*="reCAPTCHA"]',
+                'iframe[name*="recaptcha"]',
+            ]
+
+            for frame_selector in recaptcha_frame_selectors:
+                try:
+                    frame_elem = page.frame_locator(frame_selector).first
+                    # The checkbox is a div with class "recaptcha-checkbox-border"
+                    checkbox = frame_elem.locator('.recaptcha-checkbox-border, #recaptcha-anchor')
+
+                    if await checkbox.count() > 0:
+                        logger.info(f"Found reCAPTCHA checkbox in frame: {frame_selector}")
+                        await checkbox.click(timeout=5000)
+                        logger.info("Clicked reCAPTCHA checkbox")
+
+                        # Wait to see if challenge appears or it passes
+                        await asyncio.sleep(3)
+
+                        # Check if we passed (checkbox gets checkmark)
+                        try:
+                            checked = frame_elem.locator('[aria-checked="true"], .recaptcha-checkbox-checked')
+                            if await checked.count() > 0:
+                                logger.info("reCAPTCHA passed without challenge!")
+                                return True
+                            else:
+                                logger.warning("reCAPTCHA challenge appeared - may need manual solving or 2Captcha")
+                        except Exception:
+                            pass
+
+                        return True
+                except Exception as e:
+                    logger.debug(f"Frame selector {frame_selector} failed: {e}")
+                    continue
+
+            # Fallback: try to find checkbox by role/class outside iframe
+            try:
+                checkbox_selectors = [
+                    '.g-recaptcha',
+                    '[data-sitekey]',
+                    '#recaptcha-anchor',
+                ]
+                for selector in checkbox_selectors:
+                    elem = page.locator(selector).first
+                    if await elem.count() > 0 and await elem.is_visible(timeout=2000):
+                        await elem.click(timeout=5000)
+                        logger.info(f"Clicked reCAPTCHA element: {selector}")
+                        await asyncio.sleep(3)
+                        return True
+            except Exception:
+                pass
+
+            logger.info("No reCAPTCHA checkbox found on this page")
+            return False
+
+        except Exception as e:
+            logger.debug(f"reCAPTCHA handling error: {e}")
+            return False
+
+    async def _handle_popup_dialogs(self, page) -> None:
+        """
+        Handle promotional/holiday popups that may appear on SGWS.
+
+        These popups (like holiday delivery schedule notices) have a "Close" button.
+        """
+        try:
+            logger.info("Checking for popups...")
+            await asyncio.sleep(3)  # Wait for popup to fully render
+
+            # Take screenshot before popup handling for debugging
+            await page.screenshot(path="/tmp/sgws_before_popup.png")
+            logger.info("Screenshot before popup handling: /tmp/sgws_before_popup.png")
+
+            # Check if holiday popup is present by looking for its content
+            holiday_popup_visible = False
+            try:
+                holiday_text = page.locator('text="HOLIDAY DELIVERY"')
+                if await holiday_text.count() > 0:
+                    holiday_popup_visible = True
+                    logger.info("Holiday delivery popup detected!")
+            except Exception:
+                pass
+
+            if not holiday_popup_visible:
+                logger.info("No popup detected, continuing...")
+                return
+
+            # Log all visible buttons for debugging
+            try:
+                all_btns = await page.locator('button').all()
+                logger.info(f"Found {len(all_btns)} total buttons on page")
+                for i, btn in enumerate(all_btns[:10]):  # Log first 10
+                    try:
+                        text = await btn.text_content()
+                        visible = await btn.is_visible()
+                        logger.info(f"  Button {i}: '{text.strip() if text else 'N/A'}' visible={visible}")
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.debug(f"Could not enumerate buttons: {e}")
+
+            # APPROACH 1: Force click any button containing "Close"
+            try:
+                close_btn = page.locator('button:has-text("Close")').first
+                if await close_btn.count() > 0:
+                    logger.info("Found Close button, attempting force click...")
+                    await close_btn.scroll_into_view_if_needed()
+                    await asyncio.sleep(0.5)
+                    await close_btn.click(force=True)
+                    logger.info("Force clicked Close button!")
+                    await asyncio.sleep(1)
+                    # Verify popup closed
+                    if await page.locator('text="HOLIDAY DELIVERY"').count() == 0:
+                        logger.info("Popup successfully closed")
+                        return
+            except Exception as e:
+                logger.debug(f"Force click approach failed: {e}")
+
+            # APPROACH 2: Click by bounding box coordinates
+            try:
+                close_btn = page.locator('button:has-text("Close")').first
+                box = await close_btn.bounding_box()
+                if box:
+                    x = box['x'] + box['width'] / 2
+                    y = box['y'] + box['height'] / 2
+                    logger.info(f"Clicking Close button at coordinates ({x}, {y})")
+                    await page.mouse.click(x, y)
+                    await asyncio.sleep(1)
+                    if await page.locator('text="HOLIDAY DELIVERY"').count() == 0:
+                        logger.info("Popup closed via coordinate click")
+                        return
+            except Exception as e:
+                logger.debug(f"Coordinate click failed: {e}")
+
+            # APPROACH 3: JavaScript direct click with multiple selectors
+            try:
+                closed = await page.evaluate('''
+                    () => {
+                        // Try to find the Close button in various ways
+                        const selectors = [
+                            'button:contains("Close")',
+                            '.modal button',
+                            '[role="dialog"] button',
+                            'div[class*="modal"] button',
+                            'div[class*="popup"] button',
+                        ];
+
+                        // First, try direct text match
+                        const buttons = document.querySelectorAll('button');
+                        for (const btn of buttons) {
+                            const text = (btn.textContent || '').trim();
+                            if (text.toLowerCase() === 'close') {
+                                console.log('Found Close button via text match');
+                                btn.dispatchEvent(new MouseEvent('click', {
+                                    bubbles: true,
+                                    cancelable: true,
+                                    view: window
+                                }));
+                                return 'text-match';
+                            }
+                        }
+
+                        // Try clicking red-styled buttons (SGWS uses red for Close)
+                        for (const btn of buttons) {
+                            const style = window.getComputedStyle(btn);
+                            const bgColor = style.backgroundColor;
+                            // Red buttons typically have high R value
+                            if (bgColor.includes('rgb') && bgColor.includes('(')) {
+                                const text = (btn.textContent || '').trim().toLowerCase();
+                                if (text.includes('close')) {
+                                    console.log('Found red Close button');
+                                    btn.dispatchEvent(new MouseEvent('click', {
+                                        bubbles: true,
+                                        cancelable: true,
+                                        view: window
+                                    }));
+                                    return 'red-button';
+                                }
+                            }
+                        }
+
+                        // Try removing modal backdrop
+                        const modals = document.querySelectorAll('.modal, [role="dialog"], div[class*="modal"]');
+                        for (const modal of modals) {
+                            modal.style.display = 'none';
+                            console.log('Hidden modal element');
+                        }
+
+                        const backdrops = document.querySelectorAll('.modal-backdrop, .overlay, [class*="backdrop"]');
+                        for (const bd of backdrops) {
+                            bd.style.display = 'none';
+                        }
+
+                        return modals.length > 0 ? 'hidden-modal' : null;
+                    }
+                ''')
+                if closed:
+                    logger.info(f"JavaScript popup handling result: {closed}")
+                    await asyncio.sleep(1)
+                    if await page.locator('text="HOLIDAY DELIVERY"').count() == 0:
+                        logger.info("Popup closed via JavaScript")
+                        return
+            except Exception as e:
+                logger.debug(f"JavaScript handling failed: {e}")
+
+            # APPROACH 4: Press Escape key
+            try:
+                logger.info("Trying Escape key...")
+                await page.keyboard.press('Escape')
+                await asyncio.sleep(1)
+                if await page.locator('text="HOLIDAY DELIVERY"').count() == 0:
+                    logger.info("Popup closed via Escape key")
+                    return
+            except Exception as e:
+                logger.debug(f"Escape key failed: {e}")
+
+            # APPROACH 5: Click backdrop/overlay to dismiss
+            try:
+                logger.info("Trying to click modal backdrop...")
+                backdrop = page.locator('.modal-backdrop, .overlay, [class*="backdrop"]').first
+                if await backdrop.count() > 0:
+                    await backdrop.click(force=True, position={"x": 10, "y": 10})
+                    await asyncio.sleep(1)
+            except Exception as e:
+                logger.debug(f"Backdrop click failed: {e}")
+
+            # Take screenshot after all attempts
+            await page.screenshot(path="/tmp/sgws_after_popup_attempts.png")
+            logger.warning("Could not close popup. Screenshot: /tmp/sgws_after_popup_attempts.png")
+
+        except Exception as e:
+            logger.error(f"Popup handling error: {e}")
+
     async def _login_with_playwright(self) -> Optional[dict[str, str]]:
         """
         Use Playwright to automate login and capture session cookies.
@@ -163,33 +634,32 @@ class SGWSScraper(BaseDistributorScraper):
             # Store browser context for reuse during scraping
             self._playwright = p
             self._browser = browser
-            context = await browser.new_context(
-                viewport={"width": 1920, "height": 1080},
-                user_agent=(
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/131.0.0.0 Safari/537.36"
-                ),
-            )
+            # Use stealth context factory for anti-detection
+            context = await StealthContextFactory.create_context(browser)
             page = await context.new_page()
 
             try:
-                # Navigate to login page
+                # Navigate to login page (use /auth/login for direct login form)
                 logger.info("Navigating to SGWS login page...")
-                await page.goto(f"{self.base_url}/login", wait_until="networkidle")
+                await page.goto(f"{self.base_url}/auth/login", wait_until="networkidle")
                 await asyncio.sleep(3)
 
-                # SGWS has both username and password on single page
+                # Handle age verification popup if present (dropdown selector)
+                await self._handle_age_verification(page)
+
+                # SGWS /auth/login has clean Email Address and Password fields
                 logger.info("Filling login form...")
 
-                # Fill username/email field
+                # Fill username/email field - try multiple selectors
                 email_selectors = [
+                    'input[type="email"]',
+                    'input[name="email"]',
+                    'input[placeholder*="Email" i]',
+                    'input[aria-label*="Email" i]',
+                    'input[id*="email" i]',
                     'input[placeholder*="Username" i]',
-                    'input[placeholder*="email" i]',
                     'input[name="userId"]',
                     'input[name="username"]',
-                    'input[name="email"]',
-                    'input[type="email"]',
                     'input[type="text"]',
                 ]
 
@@ -240,9 +710,14 @@ class SGWSScraper(BaseDistributorScraper):
                     await browser.close()
                     return None
 
+                # Handle reCAPTCHA checkbox if present
+                await asyncio.sleep(1)
+                await self._handle_recaptcha_checkbox(page)
+
                 # Click Log In button
                 await asyncio.sleep(1)
                 login_selectors = [
+                    'button:has-text("Log in")',  # SGWS uses "Log in" with lowercase 'i'
                     'button:has-text("Log In")',
                     'button:has-text("Login")',
                     'button:has-text("Sign In")',
@@ -276,29 +751,93 @@ class SGWSScraper(BaseDistributorScraper):
                 # Take screenshot for debugging (with longer timeout)
                 await page.screenshot(path="/tmp/sgws_login_error.png", timeout=60000)
 
-                # Check if login was successful by looking for account indicator
-                # The page shows "Acct: XXXXX" when logged in
-                account_indicator = page.locator('text=/Acct[:\.]?\s*\d+/i')
-                cart_icon = page.locator('[class*="cart"], [href*="cart"]')
-                shop_nav = page.locator('text="Shop"')
+                # Check if login was successful by looking for DEFINITIVE logged-in indicators
+                # IMPORTANT: Must check for NOT-logged-in indicators first, as some elements
+                # like "Shop" appear on public site too
 
-                is_logged_in = (
-                    await account_indicator.count() > 0 or
-                    await cart_icon.count() > 0 or
-                    await shop_nav.count() > 0
-                )
+                # Check for indicators that user is NOT logged in
+                not_logged_in_indicators = [
+                    page.locator('text="Sign up to view product prices"'),
+                    page.locator('a:has-text("Sign Up")'),
+                    page.locator('a:has-text("Log In")'),
+                    page.locator('button:has-text("Log In")'),
+                    page.locator('text="Create an Account"'),
+                ]
+
+                is_not_logged_in = False
+                for indicator in not_logged_in_indicators:
+                    try:
+                        if await indicator.count() > 0 and await indicator.is_visible(timeout=2000):
+                            indicator_text = await indicator.first.text_content()
+                            logger.warning(f"Found NOT-logged-in indicator: '{indicator_text}'")
+                            is_not_logged_in = True
+                            break
+                    except Exception:
+                        continue
+
+                if is_not_logged_in:
+                    logger.error("Login failed - site shows login/signup buttons (reCAPTCHA likely blocked)")
+                    await page.screenshot(path="/tmp/sgws_login_failed.png")
+                    await browser.close()
+                    return None
+
+                # Check for DEFINITIVE logged-in indicators
+                # The page shows "Acct: XXXXX" when logged in, or user's name/account menu
+                account_indicator = page.locator('text=/Acct[:\.]?\s*\d+/i')
+                my_account_link = page.locator('a:has-text("My Account"), a:has-text("Account")')
+                logout_link = page.locator('a:has-text("Log Out"), a:has-text("Logout"), button:has-text("Log Out")')
+
+                is_logged_in = False
+                for indicator in [account_indicator, my_account_link, logout_link]:
+                    try:
+                        if await indicator.count() > 0:
+                            indicator_text = await indicator.first.text_content()
+                            logger.info(f"Found logged-in indicator: '{indicator_text}'")
+                            is_logged_in = True
+                            break
+                    except Exception:
+                        continue
 
                 if is_logged_in:
-                    logger.info("Login successful - account/shop indicators found")
-                elif "/login" in current_url.lower() and "error" in current_url.lower():
-                    # Only fail if there's an actual error
+                    logger.info("Login successful - definitive account indicators found")
+                elif "/login" in current_url.lower() or "/auth" in current_url.lower():
+                    # Still on login page - check for error
                     error_elem = page.locator('.error, .alert-danger, [class*="error"]')
                     if await error_elem.count() > 0:
                         error_text = await error_elem.first.text_content()
                         logger.error(f"Login error: {error_text}")
-                    logger.error("Login failed - still on login page with error")
+                    logger.error("Login failed - still on login page")
                     await browser.close()
                     return None
+                else:
+                    # Not on login page - check if NOT logged in by looking for login/signup buttons
+                    await page.screenshot(path="/tmp/sgws_login_check.png")
+
+                    # If no login/signup buttons visible, assume logged in
+                    login_btn = page.locator('a:has-text("Log In"), button:has-text("Log In"), a:has-text("Log in")')
+                    signup_btn = page.locator('a:has-text("Sign Up")')
+
+                    login_visible = False
+                    try:
+                        if await login_btn.count() > 0 and await login_btn.first.is_visible(timeout=3000):
+                            login_visible = True
+                    except Exception:
+                        pass
+
+                    signup_visible = False
+                    try:
+                        if await signup_btn.count() > 0 and await signup_btn.first.is_visible(timeout=3000):
+                            signup_visible = True
+                    except Exception:
+                        pass
+
+                    if login_visible or signup_visible:
+                        logger.error("Login failed - login/signup buttons still visible on homepage")
+                        await browser.close()
+                        return None
+                    else:
+                        # No login buttons visible - likely logged in successfully
+                        logger.info("Login appears successful - redirected to homepage without login buttons")
 
                 # Extract ALL cookies (not just sgproof domain)
                 cookies = await context.cookies()
@@ -378,14 +917,8 @@ class SGWSScraper(BaseDistributorScraper):
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=False)
-            context = await browser.new_context(
-                viewport={"width": 1920, "height": 1080},
-                user_agent=(
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/131.0.0.0 Safari/537.36"
-                ),
-            )
+            # Use stealth context factory for anti-detection
+            context = await StealthContextFactory.create_context(browser)
 
             # Set cookies from authentication (use full Playwright cookie format)
             if self._playwright_cookies:
@@ -405,17 +938,130 @@ class SGWSScraper(BaseDistributorScraper):
                 logger.info(f"Navigating to: {search_url}")
                 await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
 
-                # Wait for JS to render products
-                await asyncio.sleep(10)
+                # Wait for SSO redirects to complete
+                # SGWS uses Gigya SSO which does multiple redirects
+                max_wait = 45  # seconds
+                waited = 0
+                last_url = ""
+                stable_count = 0
 
-                # Check current URL - if redirected to login, we need to log in again
-                current_url = page.url
-                logger.info(f"After navigation, current URL: {current_url}")
+                while waited < max_wait:
+                    current_url = page.url
 
-                if "/login" in current_url and "login=true" not in current_url:
-                    logger.warning("Session expired - need to re-authenticate")
-                    await page.screenshot(path="/tmp/sgws_search.png")
+                    # Check if URL is stable (same for 3 checks = ~6 seconds)
+                    if current_url == last_url:
+                        stable_count += 1
+                    else:
+                        stable_count = 0
+                        logger.info(f"Current URL (t={waited}s): {current_url}")
+
+                    last_url = current_url
+
+                    # If URL has been stable and we're on the main site, we're done
+                    if stable_count >= 3 and "shop.sgproof.com" in current_url:
+                        logger.info("SSO redirect complete, URL stable on main site")
+                        break
+
+                    # If on login page explicitly, session expired
+                    if "/auth/login" in current_url or "/login" in current_url:
+                        logger.warning("Redirected to login page - session expired")
+                        await page.screenshot(path="/tmp/sgws_search.png")
+                        return []
+
+                    await asyncio.sleep(2)
+                    waited += 2
+
+                # Wait additional time for JS to render products
+                await asyncio.sleep(5)
+
+                # Handle age verification if it appears
+                await self._handle_age_verification(page)
+
+                # Handle holiday/promotional popup if it appears
+                await self._handle_popup_dialogs(page)
+
+                # CRITICAL: Verify we're actually logged in before scraping
+                # First check for POSITIVE indicators (logged in)
+                is_authenticated = False
+
+                # Check for account number in header (e.g., "Acct: 102376")
+                try:
+                    acct_indicator = page.locator('text=/Acct:\\s*\\d+/')
+                    if await acct_indicator.count() > 0:
+                        logger.info("AUTHENTICATED - Account number visible in header")
+                        is_authenticated = True
+                except Exception:
+                    pass
+
+                # Check for "Add to Cart" buttons (only visible when logged in)
+                try:
+                    cart_buttons = page.locator('button:has-text("Add to Cart")')
+                    if await cart_buttons.count() > 0:
+                        logger.info("AUTHENTICATED - 'Add to Cart' buttons visible")
+                        is_authenticated = True
+                except Exception:
+                    pass
+
+                # Check for price elements with dollar amounts
+                try:
+                    prices = page.locator('text=/\\$\\d+\\.\\d{2}/')
+                    price_count = await prices.count()
+                    if price_count > 0:
+                        logger.info(f"AUTHENTICATED - Found {price_count} price elements")
+                        is_authenticated = True
+                except Exception:
+                    pass
+
+                # If we found positive indicators, we're logged in - proceed
+                if is_authenticated:
+                    logger.info("Authentication verified via positive indicators")
+                else:
+                    # Only check negative indicators if no positive indicators found
+                    is_not_authenticated = False
+
+                    # Check for "Sign up to view product prices" text
+                    try:
+                        not_logged_in_check = page.locator('text="Sign up to view product prices"')
+                        if await not_logged_in_check.count() > 0:
+                            logger.error("NOT AUTHENTICATED - 'Sign up to view product prices' visible")
+                            is_not_authenticated = True
+                    except Exception:
+                        pass
+
+                    # Check for prominent Login/Sign Up buttons in header area
+                    try:
+                        # More specific: look in header/nav area only
+                        header_login = page.locator('header a:has-text("Log In"), nav a:has-text("Log In")')
+                        if await header_login.count() > 0 and await header_login.first.is_visible(timeout=2000):
+                            logger.error("NOT AUTHENTICATED - Login button visible in header")
+                            is_not_authenticated = True
+                    except Exception:
+                        pass
+
+                if not is_authenticated and is_not_authenticated:
+                    logger.error("Session expired or cookies invalid!")
+                    logger.error("Clearing invalid cookies and aborting scrape")
+                    await page.screenshot(path="/tmp/sgws_not_authenticated.png")
+
+                    # Clear the invalid saved cookies
+                    try:
+                        from app.scrapers.utils.cookie_capture import COOKIES_DIR
+                        cookie_file = COOKIES_DIR / "sgws_cookies.json"
+                        if cookie_file.exists():
+                            cookie_file.unlink()
+                            logger.info("Deleted expired cookies file")
+                    except Exception as e:
+                        logger.debug(f"Could not delete cookie file: {e}")
+
+                    # Mark as not authenticated
+                    self.authenticated = False
+                    self._playwright_cookies = []
+                    self.session_cookies = {}
+
+                    logger.error("Please run: python -m app.scrapers.utils.cookie_capture --distributor sgws")
                     return []
+
+                logger.info("Authentication verified - proceeding with scrape")
 
                 # Scroll down to trigger lazy loading
                 for _ in range(3):
@@ -442,62 +1088,98 @@ class SGWSScraper(BaseDistributorScraper):
                 except Exception:
                     pass
 
-                # SGWS uses React/MUI - product grid items use dynamic class names
-                # We'll directly extract from product links which are consistent
-                logger.info("Using product link extraction...")
+                # SGWS uses React/MUI - use JavaScript to extract products with prices
+                logger.info("Extracting products via JavaScript...")
 
-                # Get all links that look like product links (with frompage param to filter search results)
-                product_links = page.locator('a[href*="/p/"][href*="frompage"]')
-                link_count = await product_links.count()
-                logger.info(f"Found {link_count} product links with frompage param")
+                # Use JavaScript to find product cards and extract all data
+                product_data = await page.evaluate('''
+                    () => {
+                        const products = [];
+                        const seenSkus = new Set();
 
-                # Track seen SKUs to avoid duplicates
+                        // Find all product links with href containing /p/ and frompage
+                        const productLinks = document.querySelectorAll('a[href*="/p/"][href*="frompage"]');
+
+                        for (const link of productLinks) {
+                            try {
+                                const href = link.getAttribute('href');
+                                if (!href) continue;
+
+                                // Extract SKU from URL
+                                const skuMatch = href.match(/\\/p\\/(\\d+)/);
+                                if (!skuMatch) continue;
+
+                                const sku = skuMatch[1];
+                                if (seenSkus.has(sku)) continue;
+                                seenSkus.add(sku);
+
+                                // Extract name from URL
+                                const nameMatch = href.match(/\\/([^\\/]+)\\/p\\/\\d+/);
+                                const name = nameMatch ? nameMatch[1].replace(/-/g, ' ').trim() : 'Product ' + sku;
+
+                                // Find price - look for parent card and find price element
+                                // Navigate up to find the product card container
+                                let parent = link.parentElement;
+                                let price = null;
+                                let attempts = 0;
+
+                                while (parent && attempts < 10) {
+                                    // Look for price text in this container ($ followed by numbers)
+                                    const priceElements = parent.querySelectorAll('*');
+                                    for (const el of priceElements) {
+                                        const text = el.textContent || '';
+                                        // Match price pattern like $123.00 or $1,234.00
+                                        const priceMatch = text.match(/\\$([\\d,]+\\.\\d{2})/);
+                                        if (priceMatch && !text.includes('to') && text.trim().startsWith('$')) {
+                                            // Clean and parse the price
+                                            const priceStr = priceMatch[1].replace(/,/g, '');
+                                            price = parseFloat(priceStr);
+                                            break;
+                                        }
+                                    }
+                                    if (price) break;
+                                    parent = parent.parentElement;
+                                    attempts++;
+                                }
+
+                                products.push({
+                                    sku: sku,
+                                    name: name,
+                                    href: href,
+                                    price: price
+                                });
+                            } catch (e) {
+                                console.log('Error extracting product:', e);
+                            }
+                        }
+
+                        return products;
+                    }
+                ''')
+
+                logger.info(f"JavaScript extracted {len(product_data)} products")
+
+                # Convert to RawProduct objects
                 seen_skus: set[str] = set()
-
-                # Extract product info from links
-                for i in range(link_count):
-                    try:
-                        link = product_links.nth(i)
-                        href = await link.get_attribute("href")
-
-                        if not href:
-                            continue
-
-                        # Extract SKU from URL (/Product-Name/p/SKU?frompage=searchPage)
-                        sku_match = re.search(r'/p/(\d+)', href)
-                        if not sku_match:
-                            continue
-
-                        sku = sku_match.group(1)
-                        if sku in seen_skus:
-                            continue
-                        seen_skus.add(sku)
-
-                        # Extract product name from URL (before /p/)
-                        name_match = re.search(r'/([^/]+)/p/\d+', href)
-                        if name_match:
-                            # Convert URL slug to readable name
-                            raw_name = name_match.group(1)
-                            name = raw_name.replace("-", " ").strip()
-                        else:
-                            name = f"Product {sku}"
-
-                        products.append(RawProduct(
-                            external_id=sku,
-                            name=name,
-                            category=category.lower() if category else None,
-                            price=None,  # Price would need more complex extraction
-                            price_type="case",
-                            url=f"{self.base_url}{href}" if href.startswith("/") else href,
-                        ))
-
-                        # Respect limit
-                        if limit and len(products) >= limit:
-                            break
-
-                    except Exception as e:
-                        logger.debug(f"Error extracting product {i}: {e}")
+                for p_data in product_data:
+                    sku = p_data.get('sku')
+                    if not sku or sku in seen_skus:
                         continue
+                    seen_skus.add(sku)
+
+                    href = p_data.get('href', '')
+                    products.append(RawProduct(
+                        external_id=sku,
+                        name=p_data.get('name', f'Product {sku}'),
+                        category=category.lower() if category else None,
+                        price=p_data.get('price'),
+                        price_type="case",
+                        url=f"{self.base_url}{href}" if href.startswith("/") else href,
+                    ))
+
+                    # Respect limit
+                    if limit and len(products) >= limit:
+                        break
 
                 logger.info(f"Scraped {len(products)} products from Playwright")
 

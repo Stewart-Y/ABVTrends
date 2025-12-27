@@ -16,6 +16,7 @@ import time
 from typing import Any, Optional
 
 from app.scrapers.distributors.base import BaseDistributorScraper, RawProduct
+from app.scrapers.utils.stealth_context import StealthContextFactory
 
 logger = logging.getLogger(__name__)
 
@@ -68,8 +69,8 @@ class LibDibScraper(BaseDistributorScraper):
         """
         Authenticate with LibDib.
 
-        If session_id and csrf_token are provided in credentials, use those.
-        Otherwise, would need Playwright for full login flow (handled by SessionManager).
+        First tries pre-provided session credentials, then falls back to
+        Playwright-based login automation.
 
         Returns:
             True if authentication successful
@@ -77,48 +78,293 @@ class LibDibScraper(BaseDistributorScraper):
         session_id = self.credentials.get("session_id")
         csrf_token = self.credentials.get("csrf_token")
 
+        # Try pre-provided session first
         if session_id and csrf_token:
-            # Use provided session
-            self.session.cookies.set(
-                "sessionid", session_id, domain="app.libdib.com"
-            )
-            self.session.cookies.set(
-                "csrftoken", csrf_token, domain="app.libdib.com"
-            )
-            self.csrf_token = csrf_token
+            if await self._try_session_auth(session_id, csrf_token):
+                return True
 
-            # Update headers for authenticated requests
-            self.session.headers.update({
-                "X-CSRFToken": csrf_token,
-                "Currententityslug": self.entity_slug,
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-                "Origin": self.base_url,
-                "Referer": f"{self.base_url}/search/",
-            })
+        # Fall back to Playwright login
+        logger.info("Attempting Playwright login for LibDib...")
+        return await self._login_with_playwright()
 
-            # Verify session is valid
-            try:
-                response = await self.session.get(
-                    f"{self.base_url}/api/v1/userAccount/?format=json"
+    async def _try_session_auth(self, session_id: str, csrf_token: str) -> bool:
+        """Try authenticating with pre-provided session cookies."""
+        self.session.cookies.set(
+            "sessionid", session_id, domain="app.libdib.com"
+        )
+        self.session.cookies.set(
+            "csrftoken", csrf_token, domain="app.libdib.com"
+        )
+        self.csrf_token = csrf_token
+
+        # Update headers for authenticated requests
+        self.session.headers.update({
+            "X-CSRFToken": csrf_token,
+            "Currententityslug": self.entity_slug,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Origin": self.base_url,
+            "Referer": f"{self.base_url}/search/",
+        })
+
+        # Verify session is valid
+        try:
+            response = await self.session.get(
+                f"{self.base_url}/api/v1/userAccount/?format=json"
+            )
+            if response.status_code == 200:
+                user_data = response.json()
+                logger.info(
+                    f"LibDib authenticated as: {user_data.get('email', 'unknown')}"
                 )
-                if response.status_code == 200:
-                    user_data = response.json()
-                    logger.info(
-                        f"LibDib authenticated as: {user_data.get('email', 'unknown')}"
-                    )
-                    self.authenticated = True
-                    return True
-                else:
-                    logger.warning(
-                        f"LibDib auth check failed: {response.status_code}"
-                    )
-            except Exception as e:
-                logger.error(f"LibDib auth verification failed: {e}")
+                self.authenticated = True
+                return True
+            else:
+                logger.warning(
+                    f"LibDib session auth check failed: {response.status_code}"
+                )
+        except Exception as e:
+            logger.error(f"LibDib session auth verification failed: {e}")
 
-        # If no valid session, authentication failed
-        # SessionManager should handle refresh via Playwright
-        logger.warning("LibDib authentication failed - no valid session")
+        return False
+
+    async def _login_with_playwright(self) -> bool:
+        """
+        Use Playwright to automate LibDib login and capture session cookies.
+
+        LibDib uses Django with CSRF protection. The login flow:
+        1. Navigate to login page
+        2. Fill email and password
+        3. Submit form
+        4. Capture sessionid and csrftoken cookies
+
+        Returns:
+            True if login successful
+        """
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError:
+            logger.error("Playwright not installed")
+            return False
+
+        email = self.credentials.get("email")
+        password = self.credentials.get("password")
+
+        if not email or not password:
+            logger.error("LibDib credentials not provided")
+            return False
+
+        playwright = None
+        browser = None
+
+        try:
+            playwright = await async_playwright().start()
+            browser = await playwright.chromium.launch(headless=True)
+            # Use stealth context factory for anti-detection
+            context = await StealthContextFactory.create_context(browser)
+            page = await context.new_page()
+
+            # Navigate to LibDib login
+            logger.info("Navigating to LibDib login page...")
+            await page.goto(
+                f"{self.base_url}/login",
+                wait_until="domcontentloaded",
+                timeout=60000
+            )
+            await asyncio.sleep(3)
+
+            current_url = page.url
+            logger.info(f"Current URL: {current_url}")
+
+            # Check if already logged in
+            if "/search" in current_url or "/dashboard" in current_url:
+                logger.info("Already logged in!")
+                cookies = await context.cookies()
+                return await self._process_cookies(cookies)
+
+            # Fill login form
+            logger.info("Filling LibDib login form...")
+
+            # Email field
+            email_selectors = [
+                'input[name="email"]',
+                'input[type="email"]',
+                'input[placeholder*="email" i]',
+                '#email',
+                '#id_email',
+            ]
+
+            email_filled = False
+            for selector in email_selectors:
+                try:
+                    email_input = page.locator(selector).first
+                    if await email_input.count() > 0 and await email_input.is_visible(timeout=2000):
+                        await email_input.fill(email)
+                        logger.info(f"Email filled using: {selector}")
+                        email_filled = True
+                        break
+                except Exception:
+                    continue
+
+            if not email_filled:
+                logger.error("Could not find email field")
+                await page.screenshot(path="/tmp/libdib_no_email.png")
+                return False
+
+            await asyncio.sleep(0.5)
+
+            # Password field
+            password_selectors = [
+                'input[name="password"]',
+                'input[type="password"]',
+                '#password',
+                '#id_password',
+            ]
+
+            password_filled = False
+            for selector in password_selectors:
+                try:
+                    pwd_input = page.locator(selector).first
+                    if await pwd_input.count() > 0 and await pwd_input.is_visible(timeout=2000):
+                        await pwd_input.fill(password)
+                        logger.info(f"Password filled using: {selector}")
+                        password_filled = True
+                        break
+                except Exception:
+                    continue
+
+            if not password_filled:
+                logger.error("Could not find password field")
+                await page.screenshot(path="/tmp/libdib_no_password.png")
+                return False
+
+            await asyncio.sleep(0.5)
+
+            # Click login button
+            login_selectors = [
+                'button[type="submit"]',
+                'input[type="submit"]',
+                'button:has-text("Log In")',
+                'button:has-text("Login")',
+                'button:has-text("Sign In")',
+                '.login-button',
+            ]
+
+            login_clicked = False
+            for selector in login_selectors:
+                try:
+                    btn = page.locator(selector).first
+                    if await btn.count() > 0 and await btn.is_visible(timeout=2000):
+                        await btn.click()
+                        logger.info(f"Login button clicked: {selector}")
+                        login_clicked = True
+                        break
+                except Exception:
+                    continue
+
+            if not login_clicked:
+                # Try pressing Enter
+                await page.keyboard.press("Enter")
+                logger.info("Pressed Enter to submit")
+
+            # Wait for login to complete
+            logger.info("Waiting for login to complete...")
+            await asyncio.sleep(5)
+
+            # Check for successful login
+            current_url = page.url
+            logger.info(f"Post-login URL: {current_url}")
+
+            # Wait a bit more if still on login page
+            if "login" in current_url.lower():
+                await asyncio.sleep(5)
+                current_url = page.url
+                logger.info(f"URL after extra wait: {current_url}")
+
+            # Capture cookies
+            cookies = await context.cookies()
+            logger.info(f"Captured {len(cookies)} cookies from LibDib")
+
+            # Log cookie names for debugging
+            for c in cookies:
+                logger.info(f"Cookie: {c['name']} (domain: {c['domain']})")
+
+            # Check if we got the session cookies
+            session_cookie = next((c for c in cookies if c["name"] == "sessionid"), None)
+            csrf_cookie = next((c for c in cookies if c["name"] == "csrftoken"), None)
+
+            if session_cookie and csrf_cookie:
+                return await self._process_cookies(cookies)
+            else:
+                # Check if login failed
+                page_content = await page.content()
+                if "invalid" in page_content.lower() or "error" in page_content.lower():
+                    logger.error("LibDib login failed - invalid credentials")
+                    await page.screenshot(path="/tmp/libdib_login_failed.png")
+                else:
+                    logger.warning("LibDib login - missing session cookies")
+                    await page.screenshot(path="/tmp/libdib_no_cookies.png")
+                return False
+
+        except Exception as e:
+            logger.error(f"LibDib Playwright login error: {e}")
+            return False
+
+        finally:
+            if browser:
+                await browser.close()
+            if playwright:
+                await playwright.stop()
+
+    async def _process_cookies(self, cookies: list[dict]) -> bool:
+        """Process captured cookies and set up authenticated session."""
+        session_id = None
+        csrf_token = None
+
+        for cookie in cookies:
+            if cookie["name"] == "sessionid":
+                session_id = cookie["value"]
+            elif cookie["name"] == "csrftoken":
+                csrf_token = cookie["value"]
+
+            # Add all cookies to httpx session
+            self.session.cookies.set(
+                cookie["name"],
+                cookie["value"],
+                domain=cookie.get("domain", "app.libdib.com").lstrip("."),
+            )
+
+        if not session_id or not csrf_token:
+            logger.error("Missing required cookies (sessionid or csrftoken)")
+            return False
+
+        self.csrf_token = csrf_token
+
+        # Update headers
+        self.session.headers.update({
+            "X-CSRFToken": csrf_token,
+            "Currententityslug": self.entity_slug,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Origin": self.base_url,
+            "Referer": f"{self.base_url}/search/",
+        })
+
+        # Verify authentication
+        try:
+            response = await self.session.get(
+                f"{self.base_url}/api/v1/userAccount/?format=json"
+            )
+            if response.status_code == 200:
+                user_data = response.json()
+                logger.info(f"LibDib authenticated as: {user_data.get('email', 'unknown')}")
+                self.authenticated = True
+                return True
+            else:
+                logger.warning(f"LibDib auth verification failed: {response.status_code}")
+        except Exception as e:
+            logger.error(f"LibDib auth verification error: {e}")
+
         return False
 
     async def get_categories(self) -> list[dict[str, Any]]:

@@ -143,6 +143,9 @@ class Settings(BaseSettings):
     # Max jitter in minutes within window
     scraper_max_jitter_minutes: int = 60
 
+    # Scraper Scheduler (set to False to disable all automatic scraping)
+    scraper_scheduler_enabled: bool = False  # DISABLED - set to True to enable
+
     # Stealth Scraper Settings (human-like behavior)
     scraper_daily_limit_per_source: int = 150  # items/day per distributor
     scraper_batch_size: int = 20  # items per session

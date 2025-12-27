@@ -176,7 +176,7 @@ export default function TrendsExplorer() {
                           Signals
                         </th>
                         <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                          Updated
+                          24h Change
                         </th>
                       </tr>
                     </thead>
@@ -244,9 +244,16 @@ export default function TrendsExplorer() {
                               </span>
                             </td>
                             <td className="px-6 py-4">
-                              <span className="text-sm text-muted-foreground">
-                                -
-                              </span>
+                              {item.score_change_24h != null ? (
+                                <span className={cn(
+                                  "text-sm font-medium tabular-nums",
+                                  item.score_change_24h > 0 ? "text-green-400" : item.score_change_24h < 0 ? "text-red-400" : "text-muted-foreground"
+                                )}>
+                                  {item.score_change_24h > 0 ? "+" : ""}{item.score_change_24h.toFixed(1)}%
+                                </span>
+                              ) : (
+                                <span className="text-sm text-muted-foreground">-</span>
+                              )}
                             </td>
                           </tr>
                         );

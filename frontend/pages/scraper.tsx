@@ -54,6 +54,7 @@ export default function ScraperPage() {
   const [tier2Enabled, setTier2Enabled] = useState(false);
   const [parallelMode, setParallelMode] = useState(false);
   const [activeTab, setActiveTab] = useState<'media' | 'distributors'>('distributors');
+  const [error, setError] = useState<string | null>(null);
 
   const logsEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -162,6 +163,7 @@ export default function ScraperPage() {
 
   // Start scraper
   const handleStart = async () => {
+    setError(null); // Clear previous errors
     try {
       const response = await fetch(`${API_BASE}/scraper/start`, {
         method: 'POST',
@@ -178,11 +180,11 @@ export default function ScraperPage() {
       if (data.success) {
         setLogs([]);  // Clear old logs
       } else {
-        alert(data.message);
+        setError(data.message || 'Failed to start scraper');
       }
-    } catch (error) {
-      console.error('Failed to start scraper:', error);
-      alert('Failed to start scraper');
+    } catch (err) {
+      console.error('Failed to start scraper:', err);
+      setError('Failed to start scraper. Please check if the backend is running.');
     }
   };
 
@@ -461,6 +463,26 @@ export default function ScraperPage() {
           {/* Media Scrapers Tab */}
           {activeTab === 'media' && (
             <>
+          {/* Error Display */}
+          {error && (
+            <Card className="border-red-500/30 bg-red-500/5" data-testid="error-card">
+              <CardContent className="p-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="text-xl">⚠️</span>
+                  <p className="text-sm text-red-400">{error}</p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setError(null)}
+                  className="text-red-400 hover:text-red-300"
+                >
+                  Dismiss
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Controls Card */}
           <Card data-testid="scraper-controls">
             <CardHeader>
@@ -484,7 +506,7 @@ export default function ScraperPage() {
                   />
                   <label htmlFor="tier1" className="flex-1 cursor-pointer">
                     <div className="font-medium">Tier 1 Media</div>
-                    <div className="text-xs text-muted-foreground">20 sources</div>
+                    <div className="text-xs text-muted-foreground">News & trade publications</div>
                   </label>
                 </div>
 
@@ -500,7 +522,7 @@ export default function ScraperPage() {
                   />
                   <label htmlFor="tier2" className="flex-1 cursor-pointer">
                     <div className="font-medium">Tier 2 Retail</div>
-                    <div className="text-xs text-muted-foreground">12 sources</div>
+                    <div className="text-xs text-muted-foreground">Retailer websites & blogs</div>
                   </label>
                 </div>
 

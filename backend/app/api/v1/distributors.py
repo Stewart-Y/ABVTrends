@@ -325,80 +325,152 @@ async def get_scraper_health(
     Get health status of all distributor scrapers.
 
     Returns overall health and any alerts for failing or stale scrapers.
+    Uses the comprehensive health check service.
     """
-    from datetime import datetime, timedelta
+    from app.services.scraper_health import get_health_summary
 
-    alerts = []
-    scraper_health = []
+    return await get_health_summary()
 
-    # Get all active distributors
-    result = await db.execute(
-        select(Distributor).where(Distributor.is_active == True)
-    )
-    distributors = result.scalars().all()
 
-    now = datetime.utcnow()
-    healthy_count = 0
+@router.get("/scraper/health/detailed")
+async def get_detailed_scraper_health(
+    send_discord: bool = Query(False, description="Send health report to Discord"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get detailed health status for all scrapers with data flow metrics.
 
-    for dist in distributors:
-        # Get last scrape run
-        last_run_result = await db.execute(
-            select(ScrapeRun)
-            .where(ScrapeRun.distributor_id == dist.id)
-            .order_by(ScrapeRun.started_at.desc())
-            .limit(1)
-        )
-        last_run = last_run_result.scalar_one_or_none()
+    Optionally sends a summary to Discord.
+    """
+    from app.services.scraper_health import run_health_check
 
-        status = "unknown"
-        last_run_at = None
-        hours_since = None
-
-        if last_run:
-            last_run_at = last_run.started_at
-            hours_since = (now - last_run.started_at).total_seconds() / 3600
-
-            if last_run.status == "completed":
-                if hours_since < 24:
-                    status = "healthy"
-                    healthy_count += 1
-                else:
-                    status = "stale"
-                    alerts.append({
-                        "type": "stale_data",
-                        "distributor": dist.slug,
-                        "hours_since_run": round(hours_since, 1),
-                    })
-            elif last_run.status == "failed":
-                status = "failed"
-                alerts.append({
-                    "type": "last_run_failed",
-                    "distributor": dist.slug,
-                })
-            else:
-                status = last_run.status
-        else:
-            alerts.append({
-                "type": "never_run",
-                "distributor": dist.slug,
-            })
-
-        scraper_health.append({
-            "distributor": dist.name,
-            "slug": dist.slug,
-            "status": status,
-            "last_run_at": last_run_at.isoformat() if last_run_at else None,
-            "hours_since_run": round(hours_since, 1) if hours_since else None,
-            "is_running": _running_scrapes.get(dist.slug, False),
-        })
+    report = await run_health_check(send_discord=send_discord)
 
     return {
-        "overall_healthy": len(alerts) == 0,
-        "healthy_count": healthy_count,
-        "total_count": len(distributors),
-        "scrapers": scraper_health,
-        "alerts": alerts,
-        "checked_at": now.isoformat(),
+        "overall_healthy": report.overall_healthy,
+        "healthy_count": report.healthy_count,
+        "unhealthy_count": report.unhealthy_count,
+        "total_count": report.total_count,
+        "summary": {
+            "total_products_24h": report.total_products_24h,
+            "total_runs_24h": report.total_runs_24h,
+            "total_errors_24h": report.total_errors_24h,
+        },
+        "scrapers": [
+            {
+                "slug": s.slug,
+                "name": s.name,
+                "status": s.status,
+                "is_active": s.is_active,
+                "is_running": s.is_running,
+                "last_run": {
+                    "at": s.last_run_at.isoformat() if s.last_run_at else None,
+                    "status": s.last_run_status,
+                    "duration_seconds": s.last_run_duration_seconds,
+                    "hours_ago": round(s.hours_since_last_run, 1) if s.hours_since_last_run else None,
+                    "products_found": s.products_found_last_run,
+                    "products_new": s.products_new_last_run,
+                    "products_updated": s.products_updated_last_run,
+                    "errors": s.errors_last_run,
+                },
+                "metrics_24h": {
+                    "total_runs": s.total_runs_24h,
+                    "total_products": s.total_products_24h,
+                    "total_errors": s.total_errors_24h,
+                    "success_rate": round(s.success_rate_24h, 1),
+                },
+                "data_flow_24h": {
+                    "raw_data_records": s.raw_data_count_24h,
+                    "price_records": s.price_records_24h,
+                    "inventory_records": s.inventory_records_24h,
+                },
+                "issues": s.issues,
+            }
+            for s in report.scrapers
+        ],
+        "alerts": report.alerts,
+        "checked_at": report.checked_at.isoformat(),
+        "discord_sent": send_discord,
+    }
+
+
+@router.get("/scraper/health/{slug}")
+async def get_single_scraper_health(
+    slug: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get detailed health status for a single scraper.
+    """
+    from app.services.scraper_health import check_single_scraper
+
+    status = await check_single_scraper(slug)
+
+    return {
+        "slug": status.slug,
+        "name": status.name,
+        "status": status.status,
+        "is_active": status.is_active,
+        "is_running": status.is_running,
+        "last_run": {
+            "at": status.last_run_at.isoformat() if status.last_run_at else None,
+            "status": status.last_run_status,
+            "duration_seconds": status.last_run_duration_seconds,
+            "hours_ago": round(status.hours_since_last_run, 1) if status.hours_since_last_run else None,
+            "products_found": status.products_found_last_run,
+            "products_new": status.products_new_last_run,
+            "products_updated": status.products_updated_last_run,
+            "errors": status.errors_last_run,
+        },
+        "metrics_24h": {
+            "total_runs": status.total_runs_24h,
+            "total_products": status.total_products_24h,
+            "total_errors": status.total_errors_24h,
+            "success_rate": round(status.success_rate_24h, 1),
+        },
+        "data_flow_24h": {
+            "raw_data_records": status.raw_data_count_24h,
+            "price_records": status.price_records_24h,
+            "inventory_records": status.inventory_records_24h,
+        },
+        "issues": status.issues,
+    }
+
+
+@router.post("/scraper/test-run")
+async def trigger_test_run(
+    items_per_distributor: int = Query(10, ge=1, le=50, description="Items to scrape per distributor"),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """
+    Trigger a test scrape for all 7 distributors.
+
+    This bypasses business hours and stealth delays for quick testing.
+    Sends Discord notifications:
+    - When test starts
+    - For each scraper failure
+    - Final summary with results
+
+    Returns immediately - check Discord for progress updates.
+    """
+    from app.services.stealth_scraper import run_test_scrape
+
+    # Run synchronously since this is a test/debug endpoint
+    # The user wants to see results in Discord
+    result = await run_test_scrape(items_per_distributor=items_per_distributor)
+
+    return {
+        "success": True,
+        "message": f"Test scrape complete. {result['total_scraped']} products from {result['successful_count']}/7 distributors.",
+        "results": result["results"],
+        "summary": {
+            "total_scraped": result["total_scraped"],
+            "successful_count": result["successful_count"],
+            "error_count": result["error_count"],
+            "duration_seconds": result["duration_seconds"],
+        },
     }
 
 

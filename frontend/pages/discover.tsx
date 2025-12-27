@@ -257,18 +257,17 @@ function ProductCard({
             </div>
           )}
 
-          {/* Overlay badges */}
-          <div className="absolute top-3 right-3 flex flex-col gap-2">
-            {showNewBadge && (
+          {/* Overlay badge - show contextual badge OR tier badge, not both */}
+          <div className="absolute top-3 right-3">
+            {showNewBadge ? (
               <Badge className="bg-green-500/90 text-white border-0 backdrop-blur-sm">
                 New
               </Badge>
-            )}
-            {product.trend_tier && (
+            ) : product.trend_tier ? (
               <Badge variant={product.trend_tier as any} className="backdrop-blur-sm">
                 {product.trend_tier}
               </Badge>
-            )}
+            ) : null}
           </div>
         </div>
 
@@ -382,16 +381,11 @@ function DistributorArrivalCard({
             </div>
           )}
 
-          {/* Overlay badges */}
-          <div className="absolute top-3 right-3 flex flex-col gap-2">
+          {/* Overlay badge - show "New Listing" contextual badge only */}
+          <div className="absolute top-3 right-3">
             <Badge className="bg-blue-500/90 text-white border-0 backdrop-blur-sm">
               New Listing
             </Badge>
-            {arrival.tier && (
-              <Badge variant={arrival.tier as any} className="backdrop-blur-sm">
-                {arrival.tier}
-              </Badge>
-            )}
           </div>
         </div>
 

@@ -20,6 +20,7 @@ from app.core.config import settings
 from app.services.scraper_orchestrator import ScraperOrchestrator
 from app.services.stealth_scraper import run_stealth_session, get_scraper_stats
 from app.services.discord_notifier import get_discord_notifier
+from app.services.scraper_health import run_health_check
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +124,22 @@ class ScraperScheduler:
             replace_existing=True,
         )
 
+        # Health check - Every 4 hours during business hours (PT)
+        # Monitors all 7 distributor scrapers and sends Discord alerts for issues
+        self.scheduler.add_job(
+            self._run_health_check,
+            trigger=CronTrigger(
+                hour="9,13,17",  # 9 AM, 1 PM, 5 PM PT
+                minute=30,
+                timezone=PT,
+                day_of_week="mon-fri",
+            ),
+            id="health_check",
+            name="Scraper Health Check (Every 4h PT)",
+            max_instances=1,
+            replace_existing=True,
+        )
+
         self.scheduler.start()
         self.is_running = True
         logger.info("Scraper scheduler started")
@@ -131,6 +148,7 @@ class ScraperScheduler:
         logger.info("  - Full scrape: Daily at 2:00 AM")
         logger.info("  - Stealth Distributors: 6 sessions/day, weekdays 8AM-6PM PT")
         logger.info("  - Daily Summary: 6 PM PT weekdays (Discord notification)")
+        logger.info("  - Health Check: 9AM, 1PM, 5PM PT weekdays (Discord alerts)")
 
     def stop(self):
         """Stop the scheduler."""
@@ -302,6 +320,62 @@ class ScraperScheduler:
 
         except Exception as e:
             logger.error(f"Failed to send daily summary: {e}", exc_info=True)
+
+    async def _run_health_check(self):
+        """
+        Run comprehensive health check for all distributor scrapers.
+
+        Checks data flow, run status, error rates for all 7 distributors:
+        - libdib, sgws, rndc, sipmarket, parkstreet, breakthru, provi
+
+        Sends Discord alerts for:
+        - Failed scrapers
+        - Stale data (no run in 26+ hours)
+        - Low data volume
+        """
+        logger.info("=== Running Scraper Health Check ===")
+
+        try:
+            # Run health check with Discord notification
+            report = await run_health_check(send_discord=True)
+
+            # Log summary
+            logger.info(
+                f"Health check complete: "
+                f"{report.healthy_count}/{report.total_count} healthy, "
+                f"{report.unhealthy_count} unhealthy"
+            )
+
+            if report.alerts:
+                for alert in report.alerts:
+                    logger.warning(
+                        f"  ⚠ {alert['type']}: {alert['message']}"
+                    )
+
+            # Log per-scraper status
+            for scraper in report.scrapers:
+                status_emoji = {
+                    "healthy": "✅",
+                    "running": "🔄",
+                    "stale": "⏰",
+                    "failed": "❌",
+                    "never_run": "⏸️",
+                    "unknown": "❓",
+                }.get(scraper.status, "❓")
+
+                logger.info(
+                    f"  {status_emoji} {scraper.name}: {scraper.status} "
+                    f"({scraper.raw_data_count_24h} records/24h)"
+                )
+
+        except Exception as e:
+            logger.error(f"Health check failed: {e}", exc_info=True)
+            # Still try to send error notification
+            try:
+                discord = get_discord_notifier()
+                await discord.scraper_error("health_check", str(e))
+            except Exception:
+                pass
 
     def get_next_run_times(self) -> dict:
         """Get next scheduled run times for each job."""

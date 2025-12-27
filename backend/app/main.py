@@ -48,7 +48,7 @@ async def lifespan(app: FastAPI):
         set_db_available(False)
 
     # Start scraper scheduler if enabled
-    if settings.environment == "production":
+    if settings.environment == "production" and settings.scraper_scheduler_enabled:
         try:
             from app.services.scraper_scheduler import start_scheduler
             scheduler = await start_scheduler()
@@ -57,6 +57,9 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Failed to start scraper scheduler: {e}")
             app.state.scheduler = None
+    elif settings.environment == "production":
+        logger.info("⏸️ Scraper scheduler DISABLED (scraper_scheduler_enabled=False)")
+        app.state.scheduler = None
     else:
         logger.info("Scraper scheduler disabled in development mode")
         app.state.scheduler = None

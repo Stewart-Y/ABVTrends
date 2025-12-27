@@ -20,9 +20,9 @@ import asyncio
 import logging
 import re
 from typing import Any, Optional
-from decimal import Decimal
 
 from app.scrapers.distributors.base import BaseDistributorScraper, RawProduct
+from app.scrapers.utils.stealth_context import StealthContextFactory
 
 logger = logging.getLogger(__name__)
 
@@ -118,14 +118,8 @@ class BreakthruScraper(BaseDistributorScraper):
         try:
             self._playwright = await async_playwright().start()
             self._browser = await self._playwright.chromium.launch(headless=True)
-            self._context = await self._browser.new_context(
-                viewport={"width": 1920, "height": 1080},
-                user_agent=(
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/131.0.0.0 Safari/537.36"
-                ),
-            )
+            # Use stealth context factory for anti-detection
+            self._context = await StealthContextFactory.create_context(self._browser)
             self._page = await self._context.new_page()
 
             # Navigate to Breakthru login
@@ -285,6 +279,48 @@ class BreakthruScraper(BaseDistributorScraper):
                 await self._page.screenshot(path="/tmp/breakthru_error.png")
             return False
 
+    async def get_products(
+        self,
+        category: Optional[str] = None,
+        limit: Optional[int] = None,
+        offset: int = 0,
+    ) -> list[RawProduct]:
+        """
+        Fetch products from Breakthru Now.
+
+        Args:
+            category: Optional category filter (e.g., "spirits", "wine")
+            limit: Max products to fetch
+            offset: Pagination offset (not used, pagination handled internally)
+
+        Returns:
+            List of RawProduct objects
+        """
+        if not self.authenticated:
+            raise Exception("Not authenticated")
+
+        products: list[RawProduct] = []
+
+        # Determine category to scrape
+        cat_to_use = "spirits"  # Default
+        if category:
+            cat_to_use = category.lower()
+
+        # Scrape the category
+        raw_products = await self._get_category_products(cat_to_use)
+
+        for product in raw_products:
+            raw_product = self._convert_to_raw_product(product, cat_to_use)
+            if raw_product:
+                products.append(raw_product)
+
+                # Respect limit
+                if limit and len(products) >= limit:
+                    break
+
+        logger.info(f"get_products returned {len(products)} products")
+        return products
+
     async def _get_category_products(
         self,
         category: str,
@@ -323,11 +359,42 @@ class BreakthruScraper(BaseDistributorScraper):
             await self._page.goto(url, wait_until="domcontentloaded", timeout=30000)
             await asyncio.sleep(5)  # Extra time for product grid to load
 
-            # Wait for products to load - use data-product-id which is reliably present
-            try:
-                await self._page.wait_for_selector('[data-product-id]', timeout=15000)
-            except Exception:
+            # Take screenshot for debugging
+            await self._page.screenshot(path="/tmp/breakthru_products.png")
+            logger.info(f"Screenshot saved to /tmp/breakthru_products.png")
+
+            # Check current URL after navigation
+            current_url = self._page.url
+            logger.info(f"After navigation, URL is: {current_url}")
+
+            # Wait for products to load - try multiple selectors
+            product_found = False
+            selectors_to_try = [
+                '[data-product-id]',
+                '.m-product-card',
+                '.product-card',
+                '[class*="product"]',
+                'a[href*="/p/"]',
+            ]
+
+            for selector in selectors_to_try:
+                try:
+                    await self._page.wait_for_selector(selector, timeout=5000)
+                    count = await self._page.locator(selector).count()
+                    logger.info(f"Found {count} elements matching selector: {selector}")
+                    if count > 0:
+                        product_found = True
+                        break
+                except Exception:
+                    continue
+
+            if not product_found:
                 logger.warning(f"No products found at {url}")
+                # Save HTML for debugging
+                html = await self._page.content()
+                with open("/tmp/breakthru_products.html", "w") as f:
+                    f.write(html)
+                logger.info(f"Saved HTML ({len(html)} chars) to /tmp/breakthru_products.html")
                 return []
 
             # Extract product data from page
@@ -620,12 +687,12 @@ class BreakthruScraper(BaseDistributorScraper):
             brand=brand,
             category=category,
             subcategory=subcategory,
-            price=Decimal(str(product.get("price"))) if product.get("price") else None,
-            currency="USD",
-            size=size,
+            price=float(product.get("price")) if product.get("price") else None,
+            price_type="case",
+            volume_ml=self._parse_volume_ml(size) if size else None,
             abv=abv,
             image_url=product.get("image_url"),
-            external_url=product.get("url"),
+            url=product.get("url"),
             in_stock=True,  # Assume in stock if shown
             raw_data=product,
         )
@@ -645,6 +712,23 @@ class BreakthruScraper(BaseDistributorScraper):
             match = re.search(pattern, name, re.IGNORECASE)
             if match:
                 return match.group(1).strip()
+        return None
+
+    def _parse_volume_ml(self, size: str) -> Optional[int]:
+        """Convert size string to volume in ml."""
+        if not size:
+            return None
+        size_lower = size.lower().strip()
+        match = re.search(r'(\d+(?:\.\d+)?)\s*(ml|l|liter|oz)', size_lower)
+        if match:
+            value = float(match.group(1))
+            unit = match.group(2)
+            if unit == "l" or unit == "liter":
+                return int(value * 1000)
+            elif unit == "oz":
+                return int(value * 29.5735)  # 1 oz = ~29.57 ml
+            else:
+                return int(value)
         return None
 
     def _extract_abv(self, name: str) -> Optional[float]:

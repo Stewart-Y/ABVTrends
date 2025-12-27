@@ -21,6 +21,7 @@ import re
 from typing import Any, Optional
 
 from app.scrapers.distributors.base import BaseDistributorScraper, RawProduct
+from app.scrapers.utils.stealth_context import StealthContextFactory
 
 logger = logging.getLogger(__name__)
 
@@ -110,14 +111,8 @@ class ProviScraper(BaseDistributorScraper):
         try:
             self._playwright = await async_playwright().start()
             self._browser = await self._playwright.chromium.launch(headless=True)
-            self._context = await self._browser.new_context(
-                viewport={"width": 1920, "height": 1080},
-                user_agent=(
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/131.0.0.0 Safari/537.36"
-                ),
-            )
+            # Use stealth context factory for anti-detection
+            self._context = await StealthContextFactory.create_context(self._browser)
             self._page = await self._context.new_page()
 
             # Navigate to Provi main page
